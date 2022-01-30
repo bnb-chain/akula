@@ -17,6 +17,7 @@ pub const TOTAL_TX_INDEX: StageId = StageId("TotalTxIndex");
 pub const EXECUTION: StageId = StageId("Execution");
 pub const INTERMEDIATE_HASHES: StageId = StageId("IntermediateHashes");
 pub const HASH_STATE: StageId = StageId("HashState");
+pub const COMMITMENT: StageId = StageId("Commitment");
 pub const ACCOUNT_HISTORY_INDEX: StageId = StageId("AccountHistoryIndex");
 pub const STORAGE_HISTORY_INDEX: StageId = StageId("StorageHistoryIndex");
 pub const LOG_INDEX: StageId = StageId("LogIndex");

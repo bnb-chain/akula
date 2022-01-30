@@ -8,9 +8,20 @@ use serde::{
 };
 use std::{
     borrow::Borrow,
+    cmp,
     fmt::{self, Formatter},
 };
 use tokio::task::JoinHandle;
+
+pub fn prefix_length(a: &[u8], b: &[u8]) -> usize {
+    let len = cmp::min(a.len(), b.len());
+    for i in 0..len {
+        if a[i] != b[i] {
+            return i;
+        }
+    }
+    len
+}
 
 pub fn static_left_pad<const LEN: usize>(unpadded: &[u8]) -> [u8; LEN] {
     assert!(unpadded.len() <= LEN);

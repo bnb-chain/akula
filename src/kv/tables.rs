@@ -1,5 +1,5 @@
 use super::*;
-use crate::{models::*, zeroless_view, StageId};
+use crate::{commitment::generic::BranchData, models::*, zeroless_view, StageId};
 use anyhow::{bail, format_err};
 use arrayref::array_ref;
 use arrayvec::ArrayVec;
@@ -11,6 +11,7 @@ use modular_bitfield::prelude::*;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, *};
 use std::{collections::HashMap, fmt::Display, sync::Arc};
+use unsigned_varint::encode::usize_buffer;
 
 #[derive(Debug)]
 pub struct ErasedTable<T>(pub T)
@@ -763,6 +764,82 @@ impl TableDecode for CallTraceSetEntry {
     }
 }
 
+impl<K> TableEncode for BranchData<K>
+where
+    K: TableObject + Clone,
+{
+    type Encoded = Vec<u8>;
+
+    fn encode(self) -> Self::Encoded {
+        fn encode_slice(out: &mut Vec<u8>, s: &[u8]) {
+            out.extend_from_slice(unsigned_varint::encode::usize(s.len(), &mut usize_buffer()));
+            out.extend_from_slice(s);
+        }
+
+        let mut out = Vec::with_capacity(2 + 2);
+
+        out.extend_from_slice(&self.touch_map.0.to_be_bytes());
+        out.extend_from_slice(&self.after_map.0.to_be_bytes());
+
+        for payload in &self.payload {
+            out.push(payload.field_bits);
+            if let Some(extension) = &payload.extension {
+                encode_slice(&mut out, &extension[..]);
+            }
+            if let Some(plain_key) = &payload.plain_key {
+                encode_slice(&mut out, TableEncode::encode(plain_key.clone()).as_ref());
+            }
+            if let Some(hash) = &payload.hash {
+                encode_slice(&mut out, &hash[..]);
+            }
+        }
+
+        out
+    }
+}
+
+impl<K> TableDecode for BranchData<K>
+where
+    K: TableObject + Clone,
+{
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        BranchData::decode_with_pos(b, 0).map(|(v, _)| v)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StorageCommitmentKey {
+    pub address: Address,
+    pub prefix: Vec<u8>,
+}
+
+impl TableEncode for StorageCommitmentKey {
+    type Encoded = Vec<u8>;
+
+    fn encode(mut self) -> Self::Encoded {
+        let mut out = Vec::with_capacity(ADDRESS_LENGTH + self.prefix.len());
+        out.extend_from_slice(&self.address.encode());
+        out.append(&mut self.prefix);
+        out
+    }
+}
+
+impl TableDecode for StorageCommitmentKey {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        if b.len() < ADDRESS_LENGTH {
+            return Err(TooShort::<ADDRESS_LENGTH> { got: b.len() }.into());
+        }
+
+        Ok(StorageCommitmentKey {
+            address: Address::from_slice(&b[..ADDRESS_LENGTH]),
+            prefix: b
+                .get(ADDRESS_LENGTH..)
+                .map(|v| v.to_vec())
+                .unwrap_or_default(),
+        })
+    }
+}
+
 decl_table!(Account => Address => crate::models::Account);
 decl_table!(Storage => Address => (H256, U256));
 decl_table!(AccountChangeSet => AccountChangeKey => AccountChange);
@@ -774,6 +851,9 @@ decl_table!(StorageHistory => BitmapKey<(Address, H256)> => RoaringTreemap);
 decl_table!(Code => H256 => Bytes);
 decl_table!(TrieAccount => Vec<u8> => Vec<u8>);
 decl_table!(TrieStorage => Vec<u8> => Vec<u8>);
+decl_table!(AccountCommitment => Vec<u8> => BranchData<Address>);
+decl_table!(StorageCommitment => StorageCommitmentKey => BranchData<H256> => Address);
+decl_table!(StorageRoot => Address => H256);
 decl_table!(DbInfo => Vec<u8> => Vec<u8>);
 decl_table!(SnapshotInfo => Vec<u8> => Vec<u8>);
 decl_table!(BittorrentInfo => Vec<u8> => Vec<u8>);
@@ -822,9 +902,12 @@ pub static CHAINDATA_TABLES: Lazy<Arc<HashMap<&'static str, TableInfo>>> = Lazy:
         },
         AccountHistory::const_db_name() => TableInfo::default(),
         StorageHistory::const_db_name() => TableInfo::default(),
+        StorageRoot::const_db_name() => TableInfo::default(),
         Code::const_db_name() => TableInfo::default(),
         TrieAccount::const_db_name() => TableInfo::default(),
         TrieStorage::const_db_name() => TableInfo::default(),
+        AccountCommitment::const_db_name() => TableInfo::default(),
+        StorageCommitment::const_db_name() => TableInfo::default(),
         DbInfo::const_db_name() => TableInfo::default(),
         SnapshotInfo::const_db_name() => TableInfo::default(),
         BittorrentInfo::const_db_name() => TableInfo::default(),

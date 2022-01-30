@@ -309,6 +309,7 @@ fn main() -> anyhow::Result<()> {
                     false,
                 );
                 if !opt.skip_commitment {
+                    staged_sync.push(Commitment, false);
                     staged_sync.push(HashState::new(etl_temp_dir.clone(), None), !opt.prune);
                     staged_sync.push_with_unwind_priority(
                         Interhashes::new(etl_temp_dir.clone(), None),

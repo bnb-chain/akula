@@ -1,6 +1,7 @@
 mod block_hashes;
 mod bodies;
 mod call_trace_index;
+mod commitment;
 mod execution;
 mod finish;
 mod hashstate;
@@ -16,6 +17,7 @@ mod tx_lookup;
 pub use block_hashes::BlockHashes;
 pub use bodies::BodyDownload;
 pub use call_trace_index::CallTraceIndex;
+pub use commitment::{increment_commitment, Commitment};
 pub use execution::Execution;
 pub use finish::Finish;
 pub use hashstate::{promote_clean_accounts, promote_clean_storage, HashState};

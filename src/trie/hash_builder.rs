@@ -1,10 +1,8 @@
 use crate::{
     crypto::keccak256,
     models::*,
-    trie::{
-        node::Node,
-        util::{assert_subset, prefix_length},
-    },
+    prefix_length,
+    trie::{node::Node, util::assert_subset},
 };
 use bytes::{BufMut, Bytes, BytesMut};
 use ethereum_types::H256;

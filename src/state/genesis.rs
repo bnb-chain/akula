@@ -2,10 +2,12 @@ use crate::{
     kv::{mdbx::*, tables},
     models::*,
     res::chainspec::MAINNET,
+    stages::increment_commitment,
     state::*,
 };
 use anyhow::format_err;
 use tempfile::TempDir;
+use tracing::*;
 
 #[derive(Clone, Debug)]
 pub struct GenesisState {
@@ -70,6 +72,7 @@ pub fn initialize_genesis<'db, E>(
 where
     E: EnvironmentKind,
 {
+    let _ = etl_temp_dir;
     if let Some(existing_chainspec) = txn.get(tables::Config, ())? {
         if let Some(chainspec) = chainspec {
             if chainspec != existing_chainspec {
@@ -107,9 +110,9 @@ where
 
     state_buffer.write_to_db()?;
 
-    crate::stages::promote_clean_accounts(txn, etl_temp_dir)?;
-    crate::stages::promote_clean_storage(txn, etl_temp_dir)?;
-    let state_root = crate::trie::regenerate_intermediate_hashes(txn, etl_temp_dir, None)?;
+    let state_root = increment_commitment(txn, None)?;
+
+    info!("State root is {:?}", state_root);
 
     let header = BlockHeader {
         parent_hash: H256::zero(),

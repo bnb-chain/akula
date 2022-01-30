@@ -10,6 +10,7 @@ default-run = "akula"
 [dependencies]
 aes = "0.8"
 anyhow = "1"
+array-macro = "2"
 arrayref = "0.3"
 arrayvec = { version = "0.7", features = ["serde"] }
 array-init = "2"
@@ -127,6 +128,7 @@ tracing = "0.1"
 tracing-futures = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 trust-dns-resolver = "0.21"
+unsigned-varint = { version = "0.7", features = ["std"] }
 url = "2"
 uuid = { version = "1", features = ["v4"] }
 walkdir = "2"
@@ -164,6 +166,7 @@ triehash = "0.8"
 arrayvec = { git = "https://github.com/vorot93/arrayvec", branch = "pop-unchecked" }
 enr = { git = "https://github.com/rust-ethereum/enr" }
 ethnum = { git = "https://github.com/vorot93/ethnum-rs", branch = "impls" }
+proptest = { git = "https://github.com/mikerite/proptest", branch = "fix-258" }
 
 [[bin]]
 path = "bin/akula.rs"

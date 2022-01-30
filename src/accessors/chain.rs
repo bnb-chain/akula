@@ -56,6 +56,20 @@ pub mod header {
 
         tx.get(tables::Header, (number, hash))
     }
+
+    pub fn read_canonical<K: TransactionKind, E: EnvironmentKind>(
+        tx: &MdbxTransaction<'_, K, E>,
+        number: impl Into<BlockNumber>,
+    ) -> anyhow::Result<Option<BlockHeader>> {
+        let number = number.into();
+        trace!("Reading header for block number {}", number);
+
+        if let Some(canonical_hash) = tx.get(tables::CanonicalHeader, number)? {
+            return tx.get(tables::Header, (number, canonical_hash));
+        }
+
+        Ok(None)
+    }
 }
 
 pub mod tx {
