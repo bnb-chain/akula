@@ -45,7 +45,7 @@ ethereum-interfaces = { git = "https://github.com/ledgerwatch/interfaces", featu
   "sentry",
 ] }
 ethereum-types = { version = "0.13", features = ["codec"] }
-ethereum-jsonrpc = { git = "https://github.com/rust-ethereum/jsonrpc", features = [
+ethereum-jsonrpc = { git = "https://github.com/rust-ethereum/jsonrpc", branch = "trace", features = [
   "server",
 ] }
 ethnum = { version = "1", features = ["llvm-intrinsics", "rlp", "scale"] }

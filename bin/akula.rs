@@ -6,7 +6,7 @@ use akula::{
     p2p::node::NodeBuilder,
     rpc::{
         erigon::ErigonApiServerImpl, eth::EthApiServerImpl, net::NetApiServerImpl,
-        otterscan::OtterscanApiServerImpl,
+        otterscan::OtterscanApiServerImpl, trace::TraceApiServerImpl,
     },
     stagedsync::{
         self,
@@ -17,7 +17,9 @@ use akula::{
 };
 use anyhow::Context;
 use clap::Parser;
-use ethereum_jsonrpc::{ErigonApiServer, EthApiServer, NetApiServer, OtterscanApiServer};
+use ethereum_jsonrpc::{
+    ErigonApiServer, EthApiServer, NetApiServer, OtterscanApiServer, TraceApiServer,
+};
 use http::Uri;
 use jsonrpsee::{core::server::rpc_module::Methods, http_server::HttpServerBuilder};
 use std::{
@@ -187,7 +189,16 @@ fn main() -> anyhow::Result<()> {
                         api.merge(NetApiServerImpl.into_rpc()).unwrap();
                         api.merge(ErigonApiServerImpl { db: db.clone() }.into_rpc())
                             .unwrap();
-                        api.merge(OtterscanApiServerImpl { db }.into_rpc()).unwrap();
+                        api.merge(OtterscanApiServerImpl { db: db.clone() }.into_rpc())
+                            .unwrap();
+                        api.merge(
+                            TraceApiServerImpl {
+                                db,
+                                call_gas_limit: 100_000_000,
+                            }
+                            .into_rpc(),
+                        )
+                        .unwrap();
 
                         let _server_handle = server.start(api).unwrap();
 
