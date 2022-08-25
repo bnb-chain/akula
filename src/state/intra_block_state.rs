@@ -67,7 +67,7 @@ fn read_object<S: StateReader>(
 ) -> anyhow::Result<Option<Object>> {
     Ok(if let Some(obj) = objects.get(&address) {
         Some(obj.clone())
-    }else {
+    } else {
         let accdata = db.read_account(address)?;
         if let Some(account) = accdata {
             Some(Object {
@@ -573,8 +573,7 @@ where
     S: StateReader,
 {
     fn read_account(&self, address: Address) -> anyhow::Result<Option<Account>> {
-        Ok(read_object(self.state, &self.objects, address)?
-            .and_then(|object| object.current))
+        Ok(read_object(self.state, &self.objects, address)?.and_then(|object| object.current))
     }
 
     fn read_code(&self, code_hash: H256) -> anyhow::Result<Bytes> {

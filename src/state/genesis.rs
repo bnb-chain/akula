@@ -25,9 +25,15 @@ impl GenesisState {
         let block_number = BlockNumber(0);
         if let Some(balances) = self.chain_spec.balances.get(&block_number) {
             for (&address, &balance) in balances {
-                let code_hash = self.chain_spec.try_get_code_with_hash(block_number, &address)
-                    .map(|(hash, _)| hash).unwrap_or(EMPTY_HASH);
-                println!("initial_state address{:?}, code_hash:{:?}", address, code_hash);
+                let code_hash = self
+                    .chain_spec
+                    .try_get_code_with_hash(block_number, &address)
+                    .map(|(hash, _)| hash)
+                    .unwrap_or(EMPTY_HASH);
+                println!(
+                    "initial_state address{:?}, code_hash:{:?}",
+                    address, code_hash
+                );
                 let current_account = Account {
                     balance,
                     code_hash,
@@ -78,7 +84,10 @@ where
     if let Some(existing_chainspec) = txn.get(tables::Config, ())? {
         if let Some(chainspec) = chainspec {
             if chainspec != existing_chainspec {
-                println!("initialize_genesis chainspec.name: {:?}: {:?}", chainspec.name, existing_chainspec.name);
+                println!(
+                    "initialize_genesis chainspec.name: {:?}: {:?}",
+                    chainspec.name, existing_chainspec.name
+                );
                 if bundled_chain_spec && chainspec.name == existing_chainspec.name {
                     txn.set(tables::Config, (), chainspec.clone())?;
                     return Ok((chainspec, true));
@@ -100,13 +109,17 @@ where
     // Allocate accounts
     if let Some(balances) = chainspec.balances.get(&genesis) {
         for (&address, &balance) in balances {
-            let code_hash = if let Some((hash, code)) = chainspec.try_get_code_with_hash(genesis, &address) {
-                state_buffer.update_code(hash, code)?;
-                hash
-            } else {
-                EMPTY_HASH
-            };
-            println!("initialize_genesis address{:?}, code_hash:{:?}", address, code_hash);
+            let code_hash =
+                if let Some((hash, code)) = chainspec.try_get_code_with_hash(genesis, &address) {
+                    state_buffer.update_code(hash, code)?;
+                    hash
+                } else {
+                    EMPTY_HASH
+                };
+            println!(
+                "initialize_genesis address{:?}, code_hash:{:?}",
+                address, code_hash
+            );
             state_buffer.update_account(
                 address,
                 None,
@@ -147,8 +160,7 @@ where
     let block_hash = header.hash();
     println!("initialize_genesis block_hash:{:?}", block_hash);
 
-
-    txn.set(tables::Header, genesis, header.clone())?;
+    txn.set(tables::Header, (genesis, block_hash), header.clone())?;
     txn.set(tables::CanonicalHeader, genesis, block_hash)?;
     txn.set(tables::HeaderNumber, block_hash, genesis)?;
     txn.set(tables::HeadersTotalDifficulty, genesis, header.difficulty)?;

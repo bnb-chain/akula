@@ -2,7 +2,7 @@
 
 use super::{stash::Stash, stream::*};
 use crate::{
-    models::{BlockNumber, ChainConfig, MessageWithSignature, H256},
+    models::{Block, BlockNumber, ChainConfig, MessageWithSignature, H256},
     p2p::types::*,
 };
 use bytes::{BufMut, BytesMut};
@@ -12,6 +12,7 @@ use ethereum_interfaces::{
     sentry::{sentry_client::SentryClient, PeerMinBlockRequest, SentPeers},
 };
 use ethereum_types::H512;
+use ethnum::U256;
 use fastrlp::*;
 use futures::stream::FuturesUnordered;
 use hashlink::LruCache;
@@ -28,7 +29,6 @@ use tokio::sync::{watch, Notify};
 use tokio_stream::StreamExt;
 use tonic::transport::Channel;
 use tracing::*;
-
 pub type Sentry = SentryClient<Channel>;
 pub type SentryId = usize;
 
@@ -224,6 +224,7 @@ impl Node {
                 .stream_by_predicate([
                     ethereum_interfaces::sentry::MessageId::GetBlockBodies66 as i32,
                     ethereum_interfaces::sentry::MessageId::GetBlockHeaders66 as i32,
+                    ethereum_interfaces::sentry::MessageId::NewBlock66 as i32,
                 ])
                 .await;
 
@@ -251,6 +252,16 @@ impl Node {
                                 request_id: inner.request_id,
                                 bodies: handler.stash.get_bodies(inner.hashes).unwrap_or_default(),
                             });
+
+                            handler
+                                .send_message(msg, PeerFilter::Peer(peer_id, sentry_id))
+                                .await;
+                        }
+                        Message::NewBlock(inner) => {
+                            let msg = Message::NewBlock(Box::new(NewBlock {
+                                block: handler.stash.get_block(inner.block.header.hash()).unwrap(),
+                                total_difficulty: inner.total_difficulty,
+                            }));
 
                             handler
                                 .send_message(msg, PeerFilter::Peer(peer_id, sentry_id))
@@ -390,6 +401,29 @@ impl Node {
             PeerFilter::Random(1)
         };
         self.send_raw(data, filter).await.into_iter().next()
+    }
+
+    /// Sends a new mined block to other peers.
+    pub async fn send_new_mining_block<'a>(
+        &self,
+        request_id: u64,
+        block: Block,
+        total_difficulty: U256,
+    ) -> HashSet<(SentryId, PeerId)> {
+        let data = grpc_sentry::OutboundMessageData {
+            id: grpc_sentry::MessageId::from(MessageId::NewBlock) as i32,
+            data: {
+                let mut buf = BytesMut::new();
+                NewBlock {
+                    block,
+                    total_difficulty,
+                }
+                .encode(&mut buf);
+                buf.freeze()
+            },
+        };
+
+        self.send_raw(data, PeerFilter::All).await
     }
 
     pub async fn send_pooled_transactions(

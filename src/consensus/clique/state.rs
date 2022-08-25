@@ -2,7 +2,7 @@ use crate::{
     consensus::{clique, clique::EXTRA_VANITY, CliqueError, DuoError, ValidationError},
     models::*,
 };
-use ethereum_types::Address;
+use ethereum_types::{Address, H256};
 use ethnum::U256;
 use primitive_types::H256;
 use std::collections::BTreeMap;
@@ -11,7 +11,7 @@ use tracing::*;
 const NONCE_AUTH: u64 = 0xffffffffffffffff;
 const NONCE_DROP: u64 = 0x0000000000000000;
 const DIFF_NOTURN: U256 = U256::ONE;
-const DIFF_INTURN: U256 = U256::new(2);
+pub const DIFF_INTURN: U256 = U256::new(2);
 
 #[derive(Clone, Debug, PartialEq)]
 struct Vote {
@@ -103,7 +103,7 @@ impl Votes {
 }
 
 #[derive(Debug)]
-struct Signers(Vec<Address>);
+pub struct Signers(Vec<Address>);
 
 impl Signers {
     fn new() -> Self {
@@ -246,8 +246,12 @@ impl CliqueState {
         self.votes.set_threshold(self.signers.limit());
     }
 
-    fn is_epoch(&self, number: BlockNumber) -> bool {
+    pub fn is_epoch(&self, number: BlockNumber) -> bool {
         number.0 % self.epoch == 0
+    }
+
+    pub fn get_epoch(&self) -> u64 {
+        self.epoch
     }
 
     pub(crate) fn validate(

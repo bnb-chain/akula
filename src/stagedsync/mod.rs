@@ -2,12 +2,24 @@ pub mod stage;
 pub mod util;
 
 use self::stage::{Stage, StageInput, UnwindInput};
-use crate::{kv::mdbx::*, models::*, stagedsync::stage::*, StageId};
+use crate::{
+    kv::mdbx::*,
+    mining::{state::MiningConfig, StagedMining},
+    models::*,
+    stagedsync::stage::*,
+    stages::*,
+    StageId,
+};
+use bytes::Bytes;
 use futures::future::BoxFuture;
-use std::time::{Duration, Instant};
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 use tokio::sync::watch::{Receiver as WatchReceiver, Sender as WatchSender};
 use tracing::*;
-
 struct QueuedStage<'db, E>
 where
     E: EnvironmentKind,
@@ -57,6 +69,8 @@ where
     delay_after_sync: Option<Duration>,
     post_cycle_callback:
         Option<Box<dyn Fn(StagedSyncStatus) -> BoxFuture<'static, ()> + Send + 'static>>,
+    staged_mining: Option<StagedMining<'db, E>>,
+    pub is_mining: bool,
 }
 
 impl<'db, E> Default for StagedSync<'db, E>
@@ -84,6 +98,8 @@ where
             exit_after_sync: false,
             delay_after_sync: None,
             post_cycle_callback: None,
+            staged_mining: None,
+            is_mining: false,
         }
     }
 
@@ -230,7 +246,9 @@ where
                 }
 
                 bad_block = None;
-                tx.commit()?;
+                if !self.is_mining {
+                    tx.commit()?;
+                }
             } else {
                 // Now that we're done with unwind, let's roll.
 
@@ -401,7 +419,9 @@ where
                                 {
                                     // Commit and restart transaction.
                                     debug!("Commit requested");
-                                    tx.commit()?;
+                                    if !self.is_mining {
+                                        tx.commit()?;
+                                    }
                                     debug!("Commit complete");
                                     tx = db.begin_mutable()?;
                                 }
@@ -458,7 +478,11 @@ where
                 );
                 info!("Staged sync complete.{}", t);
 
-                tx.commit()?;
+                if !self.is_mining {
+                    tx.commit()?;
+                }
+
+                let last_block = receipts.last().map_or(BlockNumber(0), |r| r.progress);
 
                 if let Some(cb) = &self.post_cycle_callback {
                     (cb)(StagedSyncStatus {

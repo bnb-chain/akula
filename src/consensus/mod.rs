@@ -1,31 +1,32 @@
-mod base;
-mod beacon;
-mod blockchain;
-mod clique;
+pub mod base;
+pub mod beacon;
+pub mod blockchain;
+pub mod clique;
 pub mod fork_choice_graph;
-mod parlia;
+pub mod parlia;
 
 use self::fork_choice_graph::ForkChoiceGraph;
 pub use self::{base::*, beacon::*, blockchain::*, clique::*, parlia::*};
 use crate::{
-    kv::{mdbx::*, MdbxWithDirHandle},
+    kv::{mdbx::*, tables, MdbxWithDirHandle},
     models::*,
     state::{IntraBlockState, StateReader},
     BlockReader, HeaderReader,
 };
 use anyhow::bail;
 use derive_more::{Display, From};
+use ethnum::u256;
 use mdbx::{EnvironmentKind, TransactionKind};
 use parking_lot::Mutex;
-use std::time::SystemTimeError;
 use std::{
-    fmt::{Debug, Display},
+    collections::BTreeSet,
+    fmt::{Debug, Display, Formatter},
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     sync::Arc,
+    time::SystemTimeError,
 };
 use tokio::sync::watch;
-use tracing::{*};
-use crate::kv::tables;
+use tracing::*;
 
 #[derive(Debug)]
 pub enum FinalizationChange {
@@ -92,7 +93,6 @@ pub enum ForkChoiceMode {
 }
 
 pub trait Consensus: Debug + Send + Sync + 'static {
-
     fn fork_choice_mode(&self) -> ForkChoiceMode;
 
     /// Performs validation of block header & body that can be done prior to sender recovery and execution.
@@ -156,6 +156,14 @@ pub trait Consensus: Debug + Send + Sync + 'static {
         Ok(())
     }
 
+    fn prepare(
+        &mut self,
+        _state: &dyn StateReader,
+        _header: &mut BlockHeader,
+    ) -> anyhow::Result<(), DuoError> {
+        Ok(())
+    }
+
     /// To be overridden for consensus validators' snap.
     fn snapshot(
         &mut self,
@@ -210,6 +218,29 @@ pub enum CliqueError {
     CheckpointMismatch {
         expected: Vec<Address>,
         got: Vec<Address>,
+    },
+    WrongHeaderExtraLen {
+        expected: usize,
+        got: usize,
+    },
+    WrongHeaderExtraSignersLen {
+        expected: usize,
+        got: usize,
+    },
+    SnapFutureBlock {
+        expect: BlockNumber,
+        got: BlockNumber,
+    },
+    SnapNotFound {
+        number: BlockNumber,
+        hash: H256,
+    },
+    SignerUnauthorized {
+        number: BlockNumber,
+        signer: Address,
+    },
+    SignerOverLimit {
+        signer: Address,
     },
 }
 
@@ -388,6 +419,45 @@ pub enum ValidationError {
 
     CliqueError(CliqueError),
     ParliaError(ParliaError),
+    NoneTransactions,
+    NoneReceipts,
+    InvalidDB,
+    UnknownHeader {
+        number: BlockNumber,
+        hash: H256,
+    },
+    SignerUnauthorized {
+        number: BlockNumber,
+        signer: Address,
+    },
+    SignerOverLimit {
+        signer: Address,
+    },
+    EpochChgWrongValidators {
+        expect: BTreeSet<Address>,
+        got: BTreeSet<Address>,
+    },
+    EpochChgCallErr,
+    SnapFutureBlock {
+        expect: BlockNumber,
+        got: BlockNumber,
+    },
+    SnapNotFound {
+        number: BlockNumber,
+        hash: H256,
+    },
+    SystemTxWrongSystemReward {
+        expect: U256,
+        got: U256,
+    },
+    SystemTxWrongCount {
+        expect: usize,
+        got: usize,
+    },
+    SystemTxWrong {
+        expect: Message,
+        got: Message,
+    },
 }
 
 impl From<CliqueError> for ValidationError {
@@ -426,6 +496,12 @@ impl From<CliqueError> for DuoError {
 impl From<ParliaError> for DuoError {
     fn from(err: ParliaError) -> Self {
         DuoError::Validation(ValidationError::ParliaError(err))
+    }
+}
+
+impl From<ethabi::Error> for DuoError {
+    fn from(err: ethabi::Error) -> Self {
+        DuoError::Internal(anyhow::Error::from(err))
     }
 }
 
@@ -533,12 +609,8 @@ impl<E: EnvironmentKind> SnapDB for MdbxTransaction<'_, RW, E> {
     fn read_parlia_snap(&self, block_hash: H256) -> anyhow::Result<Option<Snapshot>> {
         let snap_op = self.get(tables::ColParliaSnapshot, block_hash)?;
         Ok(match snap_op {
-            None => {
-                None
-            }
-            Some(val) => {
-                Some(serde_json::from_slice(&val)?)
-            }
+            None => None,
+            Some(val) => Some(serde_json::from_slice(&val)?),
         })
     }
 

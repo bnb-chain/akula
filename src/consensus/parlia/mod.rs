@@ -1,10 +1,12 @@
 //! Implementation of the BSC's POSA Engine.
 #![allow(missing_docs)]
-mod contract_upgrade;
+pub mod contract_upgrade;
 mod snapshot;
 mod state;
+mod util;
+use fastrlp::Encodable;
 pub use snapshot::Snapshot;
-pub use state::{ParliaNewBlockState};
+pub use state::ParliaNewBlockState;
 pub use util::{is_system_transaction, SYSTEM_ACCOUNT};
 
 use super::*;
@@ -12,23 +14,23 @@ use crate::execution::{analysis_cache::AnalysisCache, evmglue, tracer::NoopTrace
 use std::str;
 
 use crate::{
-    consensus::{
-        ValidationError, ParliaError
-    },
+    consensus::{ParliaError, ValidationError},
     crypto::go_rng::{RngSource, Shuffle},
     models::*,
     HeaderReader,
 };
 use bytes::{Buf, Bytes};
+use ethabi::FunctionOutputDecoder;
+use ethabi_contract::use_contract;
 use ethereum_types::{Address, H256};
 // use primitive_types;
-use ethabi_contract::use_contract;
 use lru_cache::LruCache;
 use parking_lot::RwLock;
 use std::{collections::BTreeSet, time::SystemTime};
 use tracing::*;
 use TransactionAction;
 
+pub const EXTRA_VANITY: usize = 32;
 /// Fixed number of extra-data prefix bytes reserved for signer vanity
 pub const VANITY_LENGTH: usize = 32;
 /// Fixed number of extra-data suffix bytes reserved for signer signature
@@ -54,6 +56,7 @@ pub const SNAP_CACHE_NUM: usize = 2048;
 pub const CHECKPOINT_INTERVAL: u64 = 1024;
 /// Percentage to system reward.
 pub const SYSTEM_REWARD_PERCENT: usize = 4;
+pub const NEXT_FORK_HASH_SIZE: usize = 4;
 
 const MAX_SYSTEM_REWARD: &str = "0x56bc75e2d63100000";
 const INIT_TX_NUM: usize = 7;
@@ -139,6 +142,25 @@ impl Consensus for Parlia {
         Ok(())
     }
 
+    fn prepare(
+        &mut self,
+        _state: &dyn StateReader,
+        _header: &mut BlockHeader,
+    ) -> anyhow::Result<(), DuoError> {
+        let snap = self.query_snap(_header.number.0 - 1, _header.parent_hash)?;
+        _header.difficulty = calculate_difficulty(&snap, &_header.beneficiary);
+
+        if _header.extra_data.len() < VANITY_LENGTH - NEXT_FORK_HASH_SIZE {
+            let mut extra = _header.extra_data.clone().slice(..).to_vec();
+            while extra.len() < EXTRA_VANITY {
+                extra.push(0);
+            }
+            _header.extra_data = Bytes::copy_from_slice(extra.clone().as_slice());
+        }
+
+        Ok(())
+    }
+
     fn validate_block_header(
         &self,
         header: &BlockHeader,
@@ -203,9 +225,9 @@ impl Consensus for Parlia {
             }
         }
         let inturn_proposer = snap.inturn(&proposer);
-        if inturn_proposer && header.difficulty != DIFF_INTURN {
-            return Err(ValidationError::WrongDifficulty.into());
-        } else if !inturn_proposer && header.difficulty != DIFF_NOTURN {
+        if inturn_proposer && header.difficulty != DIFF_INTURN
+            || (!inturn_proposer && header.difficulty != DIFF_NOTURN)
+        {
             return Err(ValidationError::WrongDifficulty.into());
         }
         Ok(())
@@ -230,7 +252,7 @@ impl Consensus for Parlia {
                 &header.extra_data[VANITY_LENGTH..(header.extra_data.len() - SIGNATURE_LENGTH)],
             )?;
 
-            info!(
+            debug!(
                 "epoch validators check {}, {}:{}",
                 header.number,
                 actual_validators.len(),
@@ -307,7 +329,7 @@ impl Consensus for Parlia {
                         input: Bytes::new(),
                     });
                     total_reward -= to_sys_reward;
-                    info!(
+                    debug!(
                         "SYSTEM_REWARD_CONTRACT, block {}, reward {}",
                         header.number, to_sys_reward
                     );
@@ -569,4 +591,11 @@ fn back_off_time(snap: &Snapshot, val: &Address) -> u64 {
         y.shuffle(&mut rng);
         y[idx as usize]
     }
+}
+
+fn calculate_difficulty(snap: &Snapshot, signer: &Address) -> U256 {
+    if snap.inturn(signer) {
+        return DIFF_INTURN;
+    }
+    DIFF_NOTURN
 }

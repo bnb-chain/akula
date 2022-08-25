@@ -1,5 +1,5 @@
 use crate::{
-    consensus::ValidationError,
+    consensus::{DuoError, ValidationError},
     kv::{mdbx::*, tables},
     models::*,
 };
@@ -10,7 +10,6 @@ use std::{
     time::Instant,
 };
 use tracing::*;
-use crate::consensus::DuoError;
 
 #[derive(Clone, Copy, Debug)]
 pub struct StageInput {
@@ -63,15 +62,11 @@ impl From<anyhow::Error> for StageError {
 impl From<DuoError> for StageError {
     fn from(e: DuoError) -> Self {
         match e {
-            DuoError::Validation(inner) => {
-                StageError::Validation{
-                    block: Default::default(),
-                    error: inner,
-                }
+            DuoError::Validation(inner) => StageError::Validation {
+                block: Default::default(),
+                error: inner,
             },
-            DuoError::Internal(inner) => {
-                StageError::Internal(inner)
-            }
+            DuoError::Internal(inner) => StageError::Internal(inner),
         }
     }
 }
