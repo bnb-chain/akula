@@ -3,6 +3,7 @@ use akula::{
     binutil::AkulaDataDir,
     consensus::{engine_factory, Consensus, ForkChoiceMode},
     kv::tables::CHAINDATA_TABLES,
+    mining::state::MiningConfig,
     models::*,
     p2p::node::NodeBuilder,
     rpc::{
@@ -15,6 +16,7 @@ use akula::{
     version_string,
 };
 use anyhow::Context;
+use bytes::Bytes;
 use clap::Parser;
 use ethereum_jsonrpc::{
     ErigonApiServer, EthApiServer, NetApiServer, OtterscanApiServer, ParityApiServer,
@@ -22,12 +24,19 @@ use ethereum_jsonrpc::{
 };
 use expanded_pathbuf::ExpandedPathBuf;
 use http::Uri;
+<<<<<<< HEAD
 use jsonrpsee::{
     core::server::rpc_module::Methods, http_server::HttpServerBuilder, ws_server::WsServerBuilder,
 };
 use std::{
     collections::HashSet, fs::OpenOptions, future::pending, io::Write, net::SocketAddr, panic,
     sync::Arc, time::Duration,
+=======
+use jsonrpsee::{core::server::rpc_module::Methods, http_server::HttpServerBuilder};
+use secp256k1::SecretKey;
+use std::{
+    fs::OpenOptions, future::pending, io::Write, net::SocketAddr, panic, sync::Arc, time::Duration,
+>>>>>>> 64b1c38 (Implement miner module)
 };
 use tokio::time::sleep;
 use tracing::*;
@@ -122,6 +131,22 @@ pub struct Opt {
     /// Enable CL engine RPC at this IP address and port.
     #[clap(long, default_value = "127.0.0.1:8551")]
     pub engine_listen_address: SocketAddr,
+
+    /// Enable mining
+    #[clap(long)]
+    pub mine: bool,
+
+    /// Adress for block mining rewards
+    #[clap(long)]
+    pub mine_etherbase: Option<H160>,
+
+    /// Extra data for mined blocks
+    #[clap(long)]
+    pub mine_extradata: Option<String>,
+
+    /// Private key to sign mined blocks with
+    #[clap(long)]
+    pub mine_secretkey: Option<SecretKey>,
 
     /// Path to JWT secret file.
     #[clap(long)]
@@ -484,6 +509,7 @@ fn main() -> anyhow::Result<()> {
                     },
                     !opt.prune,
                 );
+
                 staged_sync.push(
                     CallTraceIndex {
                         temp_dir: etl_temp_dir.clone(),
@@ -491,7 +517,40 @@ fn main() -> anyhow::Result<()> {
                     },
                     !opt.prune,
                 );
+
                 staged_sync.push(Finish, !opt.prune);
+
+                if opt.mine {
+                    let mut can_mine = true;
+                    if opt.exit_after_sync {
+                        warn!(
+                            "Conflicting options: --exit-after-sync is set, will not enable mining"
+                        );
+                        can_mine = false;
+                    }
+
+                    if opt.mine_etherbase.is_none() {
+                        warn!("Etherbase not set, will not enable mining");
+                        can_mine = false;
+                    }
+
+                    if opt.mine_secretkey.is_none() {
+                        warn!("No private key to sign blocks given, will not enable mining");
+                        can_mine = false;
+                    }
+
+                    if can_mine {
+                        let config = MiningConfig {
+                            enabled: true,
+                            ether_base: opt.mine_etherbase.unwrap(),
+                            secret_key: opt.mine_secretkey.unwrap(),
+                            extra_data: opt.mine_extradata.map(Bytes::from),
+                        };
+
+                        staged_sync.enable_mining(config);
+                        info!("Mining enabled");
+                    }
+                };
 
                 info!("Running staged sync");
                 staged_sync.run(&db).await?;
