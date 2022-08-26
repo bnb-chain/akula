@@ -3,6 +3,7 @@ use crate::{
     models::*,
 };
 use ethereum_types::Address;
+use ethnum::U256;
 use primitive_types::H256;
 use std::collections::BTreeMap;
 use tracing::*;

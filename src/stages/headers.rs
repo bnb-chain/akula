@@ -2,7 +2,7 @@
 
 use crate::{
     accessors,
-    consensus::{fork_choice_graph::ForkChoiceGraph, Consensus, ForkChoiceMode},
+    consensus::{engine_factory, fork_choice_graph::ForkChoiceGraph, Consensus, ForkChoiceMode},
     kv::{mdbx::*, tables},
     models::{BlockHeader, BlockNumber, H256},
     p2p::{
@@ -192,6 +192,7 @@ where
 
                         if let Some(mut downloaded) = self
                             .download_headers(
+                                txn,
                                 fork_choice_graph.clone(),
                                 &prev_progress_header,
                                 starting_block,
@@ -232,7 +233,6 @@ where
             };
 
             let mut cursor_header_number = txn.cursor(tables::HeaderNumber)?;
-            let mut cursor_header = txn.cursor(tables::Header)?;
             let mut cursor_canonical = txn.cursor(tables::CanonicalHeader)?;
             let mut cursor_td = txn.cursor(tables::HeadersTotalDifficulty)?;
             let mut td = cursor_td.last()?.map(|(_, v)| v).unwrap();
@@ -458,8 +458,9 @@ impl HeaderDownload {
         }
     }
 
-    pub async fn download_headers(
+    pub async fn download_headers<'tx, 'db, E: EnvironmentKind>(
         &self,
+        txn: &'tx mut MdbxTransaction<'db, RW, E>,
         fork_choice_graph: Arc<Mutex<ForkChoiceGraph>>,
         prev_progress_header: &BlockHeader,
         start: BlockNumber,
@@ -468,6 +469,10 @@ impl HeaderDownload {
         let requests = Arc::new(Self::prepare_requests(start, end));
         let peer_map = Arc::new(DashMap::new());
 
+        let chain_config = txn
+            .get(tables::Config, ())?
+            .ok_or_else(|| format_err!("No chain specification set"))?;
+        let consensus_engine = engine_factory(None, chain_config.clone(), None)?;
         info!(
             "Will download {} headers over {} requests",
             end - start + 1,
@@ -558,7 +563,7 @@ impl HeaderDownload {
         let took = Instant::now();
 
         if let Err((last_valid, invalid_hash)) =
-            self.validate_sequentially(prev_progress_header, &headers)
+            self.validate_sequentially(consensus_engine, txn, prev_progress_header, &headers)
         {
             headers.truncate(last_valid);
 
@@ -703,11 +708,17 @@ impl HeaderDownload {
         Ok(headers)
     }
 
-    fn validate_sequentially<'a>(
+    fn validate_sequentially<'tx, 'db, 'a, E: EnvironmentKind>(
         &self,
+        mut engine: Box<dyn Consensus>,
+        txn: &'tx mut MdbxTransaction<'db, RW, E>,
         mut parent_header: &'a BlockHeader,
         headers: &'a [(H256, BlockHeader)],
     ) -> Result<(), (usize, H256)> {
+        let mut cursor_header = txn.cursor(tables::Header).map_err(|e| {
+            warn!("validate_sequentially, but txn open err: ({e:?})");
+            (0, H256::zero())
+        })?;
         for (i, (hash, header)) in headers.iter().enumerate() {
             let parent_hash = parent_header.hash();
             if header.parent_hash != parent_hash || header.number != parent_header.number + 1_u8 {
@@ -715,6 +726,12 @@ impl HeaderDownload {
                 return Err((i.saturating_sub(1), *hash));
             }
 
+            if let Err(e) =
+                engine.snapshot(txn, BlockNumber(header.number.0 - 1), header.parent_hash)
+            {
+                warn!("Rejected bad block header ({hash:?}) when create snap err: {e:?}");
+                return Err((i.saturating_sub(1), *hash));
+            }
             if let Err(e) = self
                 .consensus
                 .validate_block_header(header, parent_header, false)
@@ -723,6 +740,14 @@ impl HeaderDownload {
                 return Err((i.saturating_sub(1), *hash));
             }
             parent_header = header;
+            cursor_header
+                .put((header.number, headers[i].0), header.clone())
+                .map_err(|e| {
+                    warn!(
+                        "Rejected bad block header ({hash:?}) because txn put header err: ({e:?})"
+                    );
+                    (i.saturating_sub(1), *hash)
+                })?;
         }
 
         Ok(())

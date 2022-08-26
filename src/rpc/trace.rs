@@ -1,4 +1,5 @@
 use super::helpers;
+use crate::consensus::is_parlia;
 use crate::{
     bitmapdb,
     consensus::engine_factory,
@@ -278,6 +279,7 @@ where
                 &message,
                 sender,
                 engine.get_beneficiary(&header),
+                is_parlia(engine.name()),
             )?;
 
             state.write_to_state_same_block()?;
@@ -389,7 +391,9 @@ where
 
     let mut rewards = vec![];
     if let Some(ommers) = ommers_for_finalization {
-        for change in engine_factory(None, chain_spec, None)?.finalize(&header, &ommers)? {
+        for change in
+            engine_factory(None, chain_spec, None)?.finalize(&header, &ommers, None, &buffer)?
+        {
             match change {
                 crate::consensus::FinalizationChange::Reward {
                     address,

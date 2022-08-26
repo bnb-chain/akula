@@ -1,6 +1,6 @@
 use crate::{
     accessors,
-    consensus::{engine_factory, CliqueError, ConsensusState, DuoError, ValidationError},
+    consensus::{engine_factory, CliqueError, ConsensusState, DuoError, ValidationError, is_parlia, DIFF_INTURN},
     execution::{
         analysis_cache::AnalysisCache,
         processor::ExecutionProcessor,
@@ -79,6 +79,10 @@ fn execute_batch_of_blocks<E: EnvironmentKind>(
             consensus_engine.set_state(ConsensusState::recover(tx, &chain_config, block_number)?);
         }
 
+        if is_parlia(consensus_engine.name()) && header.difficulty != DIFF_INTURN {
+            consensus_engine.snapshot(tx, BlockNumber(header.number.0-1), header.parent_hash)?;
+        }
+
         let mut call_tracer = CallTracer::default();
         let receipts = ExecutionProcessor::new(
             &mut buffer,
@@ -88,6 +92,7 @@ fn execute_batch_of_blocks<E: EnvironmentKind>(
             &header,
             &block,
             &block_spec,
+            &chain_config,
         )
         .execute_and_write_block()
         .map_err(|e| match e {
