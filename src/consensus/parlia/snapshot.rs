@@ -154,6 +154,18 @@ impl Snapshot {
         // TODO, so far so good.
         return 0;
     }
+
+    /// index_of find validator index in list
+    pub fn index_of(&self, validator: &Address) -> i32 {
+        let mut index= 0;
+        for addr in self.validators.iter() {
+            if *validator == *addr {
+                return index;
+            }
+            index+=1;
+        }
+        -1
+    }
 }
 
 fn find_ancient_header<E>(

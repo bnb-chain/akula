@@ -1,4 +1,4 @@
-use crate::{accessors, consensus::{engine_factory, CliqueError, ConsensusState, DuoError, ValidationError}, execution::{
+use crate::{accessors, consensus::{engine_factory, CliqueError, ConsensusState, DuoError, ValidationError, DIFF_INTURN}, execution::{
     analysis_cache::AnalysisCache,
     processor::ExecutionProcessor,
     tracer::{CallTracer, CallTracerFlags},
@@ -71,21 +71,8 @@ fn execute_batch_of_blocks<E: EnvironmentKind>(
         }
 
         if let Some(p) = consensus_engine.parlia() {
-            match p.snapshot(tx, BlockNumber(header.number.0-1), header.parent_hash) {
-                Ok(..) => {},
-                Err(e) => {
-                    return match e {
-                        DuoError::Validation(e) => {
-                            Err(StageError::Validation {
-                                block: header.number,
-                                error: e
-                            })
-                        }
-                        DuoError::Internal(e) => {
-                            Err(StageError::Internal(e))
-                        }
-                    };
-                }
+            if header.difficulty != DIFF_INTURN {
+                p.snapshot(tx, BlockNumber(header.number.0-1), header.parent_hash)?;
             }
         }
         let mut call_tracer = CallTracer::default();

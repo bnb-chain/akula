@@ -354,6 +354,12 @@ impl From<CliqueError> for DuoError {
     }
 }
 
+impl From<ethabi::Error> for DuoError {
+    fn from(err: ethabi::Error) -> Self {
+        DuoError::Internal(anyhow::Error::from(err))
+    }
+}
+
 impl From<secp256k1::Error> for DuoError {
     fn from(err: secp256k1::Error) -> Self {
         DuoError::Internal(anyhow::Error::from(err))
