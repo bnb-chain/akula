@@ -1,8 +1,13 @@
+use crate::consensus::Consensus;
 use bytes::Bytes;
 use ethereum_types::Address;
+use num_bigint::BigInt;
 use primitive_types::H256;
 use secp256k1::SecretKey;
-
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 fn default_extra_data() -> Bytes {
     // TODO replace by version string once we have versioned releases
     Bytes::from("Akula preview")
@@ -20,6 +25,7 @@ pub struct MiningConfig {
     pub ether_base: Address,
     pub secret_key: SecretKey,
     pub extra_data: Option<Bytes>,
+    pub consensus: Arc<dyn Consensus>,
 }
 
 impl MiningConfig {

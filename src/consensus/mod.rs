@@ -15,17 +15,19 @@ use crate::{
 };
 use anyhow::bail;
 use derive_more::{Display, From};
+use ethnum::u256;
 use mdbx::{EnvironmentKind, TransactionKind};
 use parking_lot::Mutex;
 use std::time::SystemTimeError;
 use std::{
-    fmt::{Debug, Display},
+    collections::BTreeSet,
+    fmt::{Debug, Display, Formatter},
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     sync::Arc,
 };
-use tokio::sync::watch;
-use tracing::{*};
 use crate::kv::tables;
+use tokio::sync::watch;
+use tracing::*;
 
 #[derive(Debug)]
 pub enum FinalizationChange {
@@ -92,7 +94,6 @@ pub enum ForkChoiceMode {
 }
 
 pub trait Consensus: Debug + Send + Sync + 'static {
-
     fn fork_choice_mode(&self) -> ForkChoiceMode;
 
     /// Performs validation of block header & body that can be done prior to sender recovery and execution.
@@ -210,6 +211,14 @@ pub enum CliqueError {
     CheckpointMismatch {
         expected: Vec<Address>,
         got: Vec<Address>,
+    },
+    WrongHeaderExtraLen {
+        expected: usize,
+        got: usize,
+    },
+    WrongHeaderExtraSignersLen {
+        expected: usize,
+        got: usize,
     },
 }
 
@@ -388,6 +397,45 @@ pub enum ValidationError {
 
     CliqueError(CliqueError),
     ParliaError(ParliaError),
+    NoneTransactions,
+    NoneReceipts,
+    InvalidDB,
+    UnknownHeader {
+        number: BlockNumber,
+        hash: H256,
+    },
+    SignerUnauthorized {
+        number: BlockNumber,
+        signer: Address,
+    },
+    SignerOverLimit {
+        signer: Address,
+    },
+    EpochChgWrongValidators {
+        expect: BTreeSet<Address>,
+        got: BTreeSet<Address>,
+    },
+    EpochChgCallErr,
+    SnapFutureBlock {
+        expect: BlockNumber,
+        got: BlockNumber,
+    },
+    SnapNotFound {
+        number: BlockNumber,
+        hash: H256,
+    },
+    SystemTxWrongSystemReward {
+        expect: U256,
+        got: U256,
+    },
+    SystemTxWrongCount {
+        expect: usize,
+        got: usize,
+    },
+    SystemTxWrong {
+        expect: Message,
+        got: Message,
+    },
 }
 
 impl From<CliqueError> for ValidationError {
@@ -533,12 +581,8 @@ impl<E: EnvironmentKind> SnapDB for MdbxTransaction<'_, RW, E> {
     fn read_parlia_snap(&self, block_hash: H256) -> anyhow::Result<Option<Snapshot>> {
         let snap_op = self.get(tables::ColParliaSnapshot, block_hash)?;
         Ok(match snap_op {
-            None => {
-                None
-            }
-            Some(val) => {
-                Some(serde_json::from_slice(&val)?)
-            }
+            None => None,
+            Some(val) => Some(serde_json::from_slice(&val)?),
         })
     }
 

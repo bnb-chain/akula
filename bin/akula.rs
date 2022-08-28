@@ -24,19 +24,12 @@ use ethereum_jsonrpc::{
 };
 use expanded_pathbuf::ExpandedPathBuf;
 use http::Uri;
-<<<<<<< HEAD
 use jsonrpsee::{
     core::server::rpc_module::Methods, http_server::HttpServerBuilder, ws_server::WsServerBuilder,
 };
 use std::{
     collections::HashSet, fs::OpenOptions, future::pending, io::Write, net::SocketAddr, panic,
     sync::Arc, time::Duration,
-=======
-use jsonrpsee::{core::server::rpc_module::Methods, http_server::HttpServerBuilder};
-use secp256k1::SecretKey;
-use std::{
-    fs::OpenOptions, future::pending, io::Write, net::SocketAddr, panic, sync::Arc, time::Duration,
->>>>>>> 64b1c38 (Implement miner module)
 };
 use tokio::time::sleep;
 use tracing::*;
@@ -545,6 +538,7 @@ fn main() -> anyhow::Result<()> {
                             ether_base: opt.mine_etherbase.unwrap(),
                             secret_key: opt.mine_secretkey.unwrap(),
                             extra_data: opt.mine_extradata.map(Bytes::from),
+                            consensus: consensus.clone(),
                         };
 
                         staged_sync.enable_mining(config);

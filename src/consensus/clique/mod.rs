@@ -1,33 +1,63 @@
+pub mod clique_util;
+pub mod snapshot;
 pub mod state;
 pub use state::CliqueState;
 
 use crate::{
     consensus::{
-        fork_choice_graph::ForkChoiceGraph, state::CliqueBlock, CliqueError, Consensus,
-        ConsensusEngineBase, ConsensusState, DuoError, FinalizationChange, ForkChoiceMode,
-        ValidationError,
+        clique::snapshot::Snapshot, fork_choice_graph::ForkChoiceGraph, state::CliqueBlock,
+        CliqueError, Consensus, ConsensusEngineBase, ConsensusState, DuoError,
+        DuoError::Validation, FinalizationChange, ForkChoiceMode, ValidationError, *,
     },
-    kv::{
-        mdbx::{MdbxCursor, MdbxTransaction},
-        tables,
+    kv::{mdbx::*, tables},
+    models::{
+        Block, BlockHeader, BlockNumber, ChainConfig, ChainId, ChainSpec, MessageWithSender,
+        Receipt, Seal,
     },
-    models::{Block, BlockHeader, BlockNumber, ChainConfig, ChainId, ChainSpec, Seal, MessageWithSender},
-    BlockReader,StateReader
+    state::{IntraBlockState, StateReader},
+    BlockReader, HeaderReader,
 };
 use anyhow::bail;
+use byte_unit::Byte;
 use bytes::Bytes;
-use ethereum_types::Address;
+use cipher::typenum::private::IsEqualPrivate;
+//use ethabi::Bytes;
+use ethereum_types::{Address, H256, H64};
+use lru_cache::LruCache;
 use mdbx::{EnvironmentKind, TransactionKind};
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
+use rlp::RlpStream;
 use secp256k1::{
     ecdsa::{RecoverableSignature, RecoveryId},
     Message as SecpMessage, SECP256K1,
 };
 use sha3::{Digest, Keccak256};
-use std::{sync::Arc, time::Duration, unreachable};
+use std::{
+    io::Read,
+    sync::Arc,
+    time::{Duration, SystemTime},
+    unreachable,
+};
+use tendermint::signature::Signer;
+use tracing::{debug, info};
+use trust_dns_resolver::proto::{serialize::binary::BinEncodable, Time};
 
 const EXTRA_VANITY: usize = 32;
 const EXTRA_SEAL: usize = 65;
+/// How many snapshot to cache in the memory.
+pub const SNAP_CACHE_NUM: usize = 2048;
+/// Number of blocks after which to save the snapshot to the database
+pub const CHECKPOINT_INTERVAL: u64 = 1024;
+/// Difficulty for INTURN block
+pub const DIFF_INTURN: ethnum::U256 = ethnum::U256([2, 0]);
+/// Difficulty for NOTURN block
+pub const DIFF_NOTURN: ethnum::U256 = ethnum::U256([1, 0]);
+/// Address length of signer
+pub const ADDRESS_LENGTH: usize = 20;
+/// Fixed number of extra-data suffix bytes reserved for signer signature
+pub const SIGNATURE_LENGTH: usize = 65;
+/// Fixed number of extra-data prefix bytes reserved for signer vanity
+pub const VANITY_LENGTH: usize = 32;
 
 pub fn recover_signer(header: &BlockHeader) -> Result<Address, anyhow::Error> {
     let signature_offset = header.extra_data.len() - EXTRA_SEAL;
@@ -153,6 +183,9 @@ pub struct Clique {
     state: Mutex<CliqueState>,
     period: u64,
     fork_choice_graph: Arc<Mutex<ForkChoiceGraph>>,
+    recent_snaps: RwLock<LruCache<H256, Snapshot>>,
+    /// Ethereum address of the signing key.
+    signer: Address,
 }
 
 impl Clique {
@@ -170,12 +203,148 @@ impl Clique {
             state: Mutex::new(state),
             period: period.as_secs(),
             fork_choice_graph: Arc::new(Mutex::new(Default::default())),
+            recent_snaps: RwLock::new(LruCache::new(SNAP_CACHE_NUM)),
+            signer: Address::zero(),
         }
+    }
+
+    // Preparing all the consensus fields of the header for running the transactions on top.
+    pub fn prepare<K: TransactionKind, E: EnvironmentKind>(
+        &mut self,
+        tx: &mut MdbxTransaction<'_, RW, E>,
+        header: &mut BlockHeader,
+    ) -> anyhow::Result<(), DuoError>
+    where
+        E: EnvironmentKind,
+    {
+        // If the block isn't a checkpoint, cast a random vote (good enough for now)
+        header.beneficiary = Address::zero();
+        header.nonce = H64::zero();
+
+        let number = header.number;
+        // Assemble the voting snapshot to check which votes make sense
+        let snap = self.snapshot(tx, BlockNumber(number.0 - 1), header.parent_hash)?;
+
+        // Set the correct difficulty
+        header.difficulty = calculate_difficulty(&snap, self.signer);
+
+        // Ensure the extra data has all its components
+        if header.extra_data.len() < EXTRA_VANITY {
+            let mut left = EXTRA_VANITY - header.extra_data.len();
+            while left > 0 {
+                //TODO Frank: header.extra_data = [header.extra_data, Bytes::new()].concat().to_bytes();
+                left -= 1;
+            }
+            // let out = s.out();
+            // header.extra_data = out;
+        }
+        //TODO Frank: header.extra_data = Bytes::from(header.extra_data.get(0..EXTRA_VANITY).unwrap());
+
+        if self.state.lock().is_epoch(number) {
+            for signer in snap.validators {
+                // TODO Frank: [header.extra_data, signer.as_bytes()].concat();
+            }
+        }
+        // TODO: frank let extra_seal = [Bytes::new(); EXTRA_SEAL];
+        //  [header.extra_data, extra_seal].concat();
+
+        // Mix digest is reserved for now, set to empty
+        header.mix_hash = H256::zero();
+
+        // Ensure the timestamp has the correct delay
+        let mut cursor = tx.cursor(tables::Header)?;
+        let parent = get_header(&mut cursor, BlockNumber(number.0 - 1))?;
+        header.timestamp = parent.timestamp + self.period;
+
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        if header.timestamp < now {
+            header.timestamp = now;
+        }
+        Ok(())
+    }
+
+    // snapshot retrieves the authorization snapshot at a given point in time.
+    pub fn snapshot<E>(
+        &mut self,
+        txn: &mut MdbxTransaction<'_, RW, E>,
+        mut block_number: BlockNumber,
+        mut block_hash: H256,
+    ) -> anyhow::Result<Snapshot, DuoError>
+    where
+        E: EnvironmentKind,
+    {
+        debug!("snapshot header {}", block_number);
+        let mut snap_by_hash = self.recent_snaps.write();
+        let mut headers = Vec::new();
+        let mut snap: Snapshot;
+
+        loop {
+            debug!("snap loop header {} {:?}", block_number, block_hash);
+            if let Some(new_snap) = snap_by_hash.get_mut(&block_hash) {
+                snap = new_snap.clone();
+                break;
+            }
+            if block_number % CHECKPOINT_INTERVAL == 0 {
+                if let Some(new_snap) = Snapshot::load(txn, block_hash)? {
+                    snap = new_snap;
+                    info!("snap find from db {} {:?}", block_number, block_hash);
+                    break;
+                }
+            }
+            if block_number == 0 {
+                let header = txn.read_header(block_number, block_hash)?;
+                if header.is_none() {
+                    return Err(Validation(ValidationError::UnknownHeader {
+                        number: block_number,
+                        hash: block_hash,
+                    }));
+                }
+                let genesis = header.unwrap();
+                let validator_bytes = &genesis.extra_data
+                    [VANITY_LENGTH..(genesis.extra_data.len() - SIGNATURE_LENGTH)];
+                let validators = snapshot::parse_validators(validator_bytes)?;
+                snap = Snapshot::new(
+                    validators,
+                    block_number.0,
+                    block_hash,
+                    self.state.lock().get_epoch(),
+                );
+                break;
+            }
+            if let Some(header) = txn.read_header(block_number, block_hash)? {
+                block_hash = header.parent_hash;
+                block_number = BlockNumber(header.number.0 - 1);
+                headers.push(header);
+            } else {
+                return Err(Validation(ValidationError::UnknownHeader {
+                    number: block_number,
+                    hash: block_hash,
+                }));
+            }
+        }
+        for h in headers.iter().rev() {
+            snap = snap.apply(txn, h, self.base.chain_id)?;
+        }
+
+        debug!("snap insert {} {:?}", snap.number, snap.hash);
+        snap_by_hash.insert(snap.hash, snap.clone());
+        if snap.number % CHECKPOINT_INTERVAL == 0 {
+            snap.store(txn)?;
+        }
+        return Ok(snap);
     }
 }
 
-impl Consensus for Clique {
+/// whether it is a clique engine
+pub fn is_clique(engine: &str) -> bool {
+    engine == "Clique"
+}
 
+impl Consensus for Clique {
     fn pre_validate_block(&self, block: &Block, state: &dyn BlockReader) -> Result<(), DuoError> {
         if !block.ommers.is_empty() {
             return Err(ValidationError::TooManyOmmers.into());
@@ -254,4 +423,11 @@ impl Consensus for Clique {
     fn fork_choice_mode(&self) -> ForkChoiceMode {
         ForkChoiceMode::Difficulty(self.fork_choice_graph.clone())
     }
+}
+
+pub fn calculate_difficulty(snap: &snapshot::Snapshot, signer: Address) -> ethnum::U256 {
+    if snap.inturn(snap.number + 1, &signer) {
+        return DIFF_INTURN;
+    }
+    return DIFF_NOTURN;
 }

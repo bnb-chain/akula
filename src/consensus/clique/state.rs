@@ -103,7 +103,7 @@ impl Votes {
 }
 
 #[derive(Debug)]
-struct Signers(Vec<Address>);
+pub struct Signers(Vec<Address>);
 
 impl Signers {
     fn new() -> Self {
@@ -246,8 +246,12 @@ impl CliqueState {
         self.votes.set_threshold(self.signers.limit());
     }
 
-    fn is_epoch(&self, number: BlockNumber) -> bool {
+    pub fn is_epoch(&self, number: BlockNumber) -> bool {
         number.0 % self.epoch == 0
+    }
+
+    pub fn get_epoch(&self) -> u64 {
+        self.epoch
     }
 
     pub(crate) fn validate(

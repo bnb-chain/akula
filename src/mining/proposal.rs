@@ -19,7 +19,7 @@ pub struct BlockProposal {
     timestamp: u64,
 }
 
-fn now() -> u64 {
+pub fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -39,13 +39,14 @@ pub fn create_proposal(
         bail!("Current system time is earlier than existing block timestamp.");
     }
 
-    let difficulty = get_difficulty(parent_header, config)?;
+    //let difficulty = get_difficulty(parent_header, config)?;
 
     Ok(BlockProposal {
         parent_hash: parent_header.hash(),
         number: parent_header.number + 1,
         beneficiary: config.get_ether_base(),
-        difficulty,
+        /// Update in the prepare func.
+        difficulty: U256::ZERO,
         extra_data: config.get_extra_data(),
         timestamp,
     })

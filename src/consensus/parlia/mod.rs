@@ -3,8 +3,9 @@
 mod contract_upgrade;
 mod snapshot;
 mod state;
+mod util;
 pub use snapshot::Snapshot;
-pub use state::{ParliaNewBlockState};
+pub use state::ParliaNewBlockState;
 pub use util::{is_system_transaction, SYSTEM_ACCOUNT};
 
 use super::*;
@@ -12,14 +13,14 @@ use crate::execution::{analysis_cache::AnalysisCache, evmglue, tracer::NoopTrace
 use std::str;
 
 use crate::{
-    consensus::{
-        ValidationError, ParliaError
-    },
+    consensus::{ParliaError, ValidationError},
     crypto::go_rng::{RngSource, Shuffle},
     models::*,
     HeaderReader,
 };
 use bytes::{Buf, Bytes};
+use ethabi::FunctionOutputDecoder;
+use ethabi_contract::use_contract;
 use ethereum_types::{Address, H256};
 // use primitive_types;
 use ethabi_contract::use_contract;
@@ -37,6 +38,7 @@ pub const SIGNATURE_LENGTH: usize = 65;
 pub const ADDRESS_LENGTH: usize = 20;
 /// Difficulty for INTURN block
 pub const DIFF_INTURN: U256 = U256([2, 0]);
+
 /// Difficulty for NOTURN block
 pub const DIFF_NOTURN: U256 = U256([1, 0]);
 /// Default value for mixhash
@@ -230,7 +232,7 @@ impl Consensus for Parlia {
                 &header.extra_data[VANITY_LENGTH..(header.extra_data.len() - SIGNATURE_LENGTH)],
             )?;
 
-            info!(
+            debug!(
                 "epoch validators check {}, {}:{}",
                 header.number,
                 actual_validators.len(),
@@ -307,7 +309,7 @@ impl Consensus for Parlia {
                         input: Bytes::new(),
                     });
                     total_reward -= to_sys_reward;
-                    info!(
+                    debug!(
                         "SYSTEM_REWARD_CONTRACT, block {}, reward {}",
                         header.number, to_sys_reward
                     );
