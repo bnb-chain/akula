@@ -100,11 +100,11 @@ impl ChainSpec {
             self.upgrades.berlin,
             self.upgrades.london,
             // upgrades for parlia,
+            self.upgrades.ramanujan,
+            self.upgrades.niels,
             self.upgrades.mirrorsync,
             self.upgrades.bruno,
             self.upgrades.euler,
-            self.upgrades.ramanujan,
-            self.upgrades.niels,
             ]
         .iter()
         .copied()
@@ -121,6 +121,14 @@ impl ChainSpec {
         forks
     }
 
+    pub fn is_on_ramanujan(&self, number: &BlockNumber) -> bool {
+        is_on_forked(self.upgrades.ramanujan, number)
+    }
+
+    pub fn is_on_niels(&self, number: &BlockNumber) -> bool {
+        is_on_forked(self.upgrades.niels, number)
+    }
+
     pub fn is_on_mirror_sync(&self, number: &BlockNumber) -> bool {
         is_on_forked(self.upgrades.mirrorsync, number)
     }
@@ -133,12 +141,12 @@ impl ChainSpec {
         is_on_forked(self.upgrades.euler, number)
     }
 
-    pub fn is_on_ramanujan(&self, number: &BlockNumber) -> bool {
-        is_on_forked(self.upgrades.ramanujan, number)
+    pub fn is_ramanujan(&self, number: &BlockNumber) -> bool {
+        is_forked(self.upgrades.ramanujan, number)
     }
 
-    pub fn is_on_niels(&self, number: &BlockNumber) -> bool {
-        is_on_forked(self.upgrades.niels, number)
+    pub fn is_niels(&self, number: &BlockNumber) -> bool {
+        is_forked(self.upgrades.niels, number)
     }
 
     pub fn is_mirror_sync(&self, number: &BlockNumber) -> bool {
@@ -151,14 +159,6 @@ impl ChainSpec {
 
     pub fn is_euler(&self, number: &BlockNumber) -> bool {
         is_forked(self.upgrades.euler, number)
-    }
-
-    pub fn is_ramanujan(&self, number: &BlockNumber) -> bool {
-        is_forked(self.upgrades.ramanujan, number)
-    }
-
-    pub fn is_niels(&self, number: &BlockNumber) -> bool {
-        is_forked(self.upgrades.niels, number)
     }
 }
 
@@ -382,6 +382,18 @@ pub struct Upgrades {
         skip_serializing_if = "Option::is_none",
         with = "::serde_with::rust::unwrap_or_skip"
     )]
+    pub ramanujan: Option<BlockNumber>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "::serde_with::rust::unwrap_or_skip"
+    )]
+    pub niels: Option<BlockNumber>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "::serde_with::rust::unwrap_or_skip"
+    )]
     pub mirrorsync: Option<BlockNumber>,
     #[serde(
         default,
@@ -395,18 +407,6 @@ pub struct Upgrades {
         with = "::serde_with::rust::unwrap_or_skip"
     )]
     pub euler: Option<BlockNumber>,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        with = "::serde_with::rust::unwrap_or_skip"
-    )]
-    pub ramanujan: Option<BlockNumber>,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        with = "::serde_with::rust::unwrap_or_skip"
-    )]
-    pub niels: Option<BlockNumber>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -588,11 +588,11 @@ mod tests {
                     berlin: Some(8290928.into()),
                     london: Some(8897988.into()),
                     paris: None,
+                    ramanujan: None,
+                    niels: None,
                     mirrorsync: None,
                     bruno: None,
-                    euler: None,
-                    ramanujan: None,
-                    niels: None
+                    euler: None
                 },
                 params: Params {
                     chain_id: ChainId(4),
