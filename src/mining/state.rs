@@ -25,7 +25,9 @@ pub struct MiningConfig {
     pub ether_base: Address,
     pub secret_key: SecretKey,
     pub extra_data: Option<Bytes>,
-    pub consensus: Arc<dyn Consensus>,
+    pub consensus: Box<dyn Consensus>, //Arc<dyn Consensus>,
+    pub dao_fork_block: Option<BigInt>,
+    pub dao_fork_support: bool,
 }
 
 impl MiningConfig {

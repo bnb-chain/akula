@@ -11,12 +11,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug)]
 pub struct BlockProposal {
-    parent_hash: H256,
-    number: BlockNumber,
-    beneficiary: Address,
-    difficulty: U256,
-    extra_data: Bytes,
-    timestamp: u64,
+    pub parent_hash: H256,
+    pub number: BlockNumber,
+    pub beneficiary: Address,
+    pub difficulty: U256,
+    pub extra_data: Bytes,
+    pub timestamp: u64,
 }
 
 pub fn now() -> u64 {
@@ -49,5 +49,35 @@ pub fn create_proposal(
         difficulty: U256::ZERO,
         extra_data: config.get_extra_data(),
         timestamp,
+    })
+}
+
+pub fn create_block_header(
+    parent_header: &BlockHeader,
+    config: &MiningConfig,
+) -> anyhow::Result<BlockHeader> {
+    let timestamp = now();
+    if timestamp <= parent_header.timestamp {
+        bail!("Current system time is earlier than existing block timestamp.");
+    }
+
+    Ok(BlockHeader {
+        parent_hash: parent_header.hash(),
+        number: parent_header.number + 1,
+        beneficiary: config.get_ether_base(),
+        /// Update in the prepare func.
+        difficulty: U256::ZERO,
+        extra_data: config.get_extra_data(),
+        timestamp,
+        ommers_hash: H256::zero(),
+        state_root: H256::zero(),
+        transactions_root: H256::zero(),
+        receipts_root: H256::zero(),
+        logs_bloom: ethereum_types::Bloom::zero(),
+        gas_limit: 0,
+        gas_used: 0,
+        mix_hash: H256::zero(),
+        nonce: ethereum_types::H64::zero(),
+        base_fee_per_gas: None,
     })
 }

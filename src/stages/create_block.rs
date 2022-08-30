@@ -1,21 +1,31 @@
+use std::cmp::Ordering;
+
 use crate::{
     consensus::*,
     kv::{mdbx::MdbxTransaction, tables},
-    mining::{proposal::create_proposal, state::MiningConfig},
+    mining::{
+        proposal::{create_block_header, create_proposal},
+        state::MiningConfig,
+    },
     models::{BlockHeader, BlockNumber},
     stagedsync::stage::*,
     StageId,
 };
 use anyhow::bail;
 use async_trait::async_trait;
+use cipher::typenum::int;
+use hex::FromHex;
 use mdbx::{EnvironmentKind, RW};
-use num_bigint::BigInt;
+use num_bigint::{BigInt, Sign};
+use num_traits::ToPrimitive;
+use parbytes::ToPretty;
+use tokio::io::copy;
 use tracing::debug;
 
 pub const CREATE_BLOCK: StageId = StageId("CreateBlock");
 // DAOForkExtraRange is the number of consecutive blocks from the DAO fork point
 // to override the extra-data in to prevent no-fork attacks.
-// pub  DAOFORKEXTRARANG: BigInt = BigInt::from(10);
+pub const DAOFORKEXTRARANG: i32 = 10;
 
 #[derive(Debug)]
 pub struct CreateBlock {
@@ -43,30 +53,33 @@ where
 
         let parent_header = get_header(tx, parent_number)?;
 
-        let mut proposal = create_proposal(&parent_header, &self.config).unwrap();
+        let mut proposal = create_block_header(&parent_header, &self.config)?;
         if is_clique(self.config.consensus.name()) {
-            //TODO frank: if let Some(cl) = self.config.consensus.clique() {
-            //     //cl.prepare(tx, proposal);
-            // }
+            if let Some(cl) = self.config.consensus.clique() {
+                cl.prepare(tx, &mut proposal);
+            }
 
             // If we are care about TheDAO hard-fork check whether to override the extra-data or not
-            // if daoBlock := cfg.chainConfig.DAOForkBlock; daoBlock != nil {
-            // 	// Check whether the block is among the fork extra-override range
-            // 	limit := new(big.Int).Add(daoBlock, params.DAOForkExtraRange)
-            // 	if header.Number.Cmp(daoBlock) >= 0 && header.Number.Cmp(limit) < 0 {
-            // 		// Depending whether we support or oppose the fork, override differently
-            // 		if cfg.chainConfig.DAOForkSupport {
-            // 			header.Extra = libcommon.Copy(params.DAOForkBlockExtra)
-            // 		} else if bytes.Equal(header.Extra, params.DAOForkBlockExtra) {
-            // 			header.Extra = []byte{} // If miner opposes, don't let it use the reserved extra-data
-            // 		}
-            // 	}
-            // }
-            if let Some(dao_block) = self.config.dao_fork_block {
-                let limit = BigInt::checked_add(dao_block, &DAOFORKEXTRARANG);
-                //if proposal
+            if let Some(dao_block) = &self.config.dao_fork_block {
+                // Check whether the block is among the fork extra-override range
+                let limit = BigInt::checked_add(&dao_block, &BigInt::from(DAOFORKEXTRARANG));
+                if proposal.number.0.cmp(&DAOFORKEXTRARANG.to_u64().unwrap()) >= Ordering::Equal
+                    && proposal.number.0.cmp(&limit.unwrap().to_u64().unwrap()) == Ordering::Less
+                {
+                    let dao_fork_block_extra =
+                        hex::decode("0x64616f2d686172642d666f726b").unwrap().into();
+                    // Depending whether we support or oppose the fork, override differently
+                    if self.config.dao_fork_support {
+                        proposal.extra_data = dao_fork_block_extra;
+                    } else if bytes::Bytes::eq(&proposal.extra_data, &dao_fork_block_extra) {
+                        // If miner opposes, don't let it use the reserved extra-data
+                        proposal.extra_data = bytes::Bytes::default();
+                    }
+                };
             }
         }
+
+        // TODO: make uncles for proposal block
 
         debug!("Proposal created: {:?}", proposal); // TODO save block proposal
 

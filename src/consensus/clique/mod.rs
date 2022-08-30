@@ -209,7 +209,7 @@ impl Clique {
     }
 
     // Preparing all the consensus fields of the header for running the transactions on top.
-    pub fn prepare<K: TransactionKind, E: EnvironmentKind>(
+    pub fn prepare<E>(
         &mut self,
         tx: &mut MdbxTransaction<'_, RW, E>,
         header: &mut BlockHeader,

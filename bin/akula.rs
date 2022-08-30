@@ -229,6 +229,11 @@ fn main() -> anyhow::Result<()> {
                     file.flush()?;
                 }
 
+                let consens_config = engine_factory(
+                    Some(db.clone()),
+                    chainspec.clone(),
+                    Some(opt.engine_listen_address),
+                )?;
                 let consensus: Arc<dyn Consensus> = engine_factory(
                     Some(db.clone()),
                     chainspec.clone(),
@@ -453,6 +458,7 @@ fn main() -> anyhow::Result<()> {
                     },
                     false,
                 );
+                //let consens = consensus.clone().into();
                 staged_sync.push(BodyDownload { node, consensus }, false);
                 staged_sync.push(TotalTxIndex, false);
                 staged_sync.push(
@@ -538,9 +544,11 @@ fn main() -> anyhow::Result<()> {
                             ether_base: opt.mine_etherbase.unwrap(),
                             secret_key: opt.mine_secretkey.unwrap(),
                             extra_data: opt.mine_extradata.map(Bytes::from),
-                            consensus: consensus.clone(),
+                            consensus: consens_config,
+                            dao_fork_block: Some(BigInt::new(num_bigint::Sign::Plus, vec![])),
+                            dao_fork_support: false,
                         };
-
+                        config.dao_fork_block.as_ref().unwrap();
                         staged_sync.enable_mining(config);
                         info!("Mining enabled");
                     }
