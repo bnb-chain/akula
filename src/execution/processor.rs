@@ -96,7 +96,6 @@ where
 
     state.access_account(sender);
 
-
     let base_fee_per_gas = if parlia_engine && util::is_system_transaction(message, &sender, &beneficiary){
         U256::ZERO
     } else{

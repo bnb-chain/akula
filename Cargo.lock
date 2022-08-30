@@ -4173,7 +4173,7 @@ dependencies = [
 [[package]]
 name = "tendermint"
 version = "0.17.0"
-source = "git+https://github.com/bnb-chain/tendermint.git#c0ade7c6f37aa6e359a0a0129bddbff59f39ed3e"
+source = "git+https://github.com/GalaIO/tendermint.git?rev=5a91a2ca#5a91a2cabfe050380c2c34d0fbe1b783517925c4"
 dependencies = [
  "anomaly",
  "async-trait",

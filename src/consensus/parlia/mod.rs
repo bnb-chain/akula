@@ -108,6 +108,7 @@ pub struct Parlia {
     period: u64,
     recent_snaps: RwLock<LruCache<H256, Snapshot>>,
     fork_choice_graph: Arc<Mutex<ForkChoiceGraph>>,
+    cached_validators: Option<BTreeSet<Address>>,
 }
 impl Parlia {
     /// new parlia engine
@@ -119,6 +120,7 @@ impl Parlia {
             period,
             recent_snaps: RwLock::new(LruCache::new(SNAP_CACHE_NUM)),
             fork_choice_graph: Arc::new(Mutex::new(Default::default())),
+            cached_validators: None,
         }
     }
 }
@@ -326,22 +328,20 @@ impl Parlia {
     where
         S: StateReader + HeaderReader,
     {
-        if transactionsOp.is_none() {
-            return Err(Validation(ValidationError::NoneTransactions));
-        }
-        if receiptsOp.is_none() {
-            return Err(Validation(ValidationError::NoneReceipts));
-        }
-        let transactions = transactionsOp.unwrap();
-        let receipts = receiptsOp.unwrap();
+        let transactions = transactionsOp
+            .ok_or_else(|| Validation(ValidationError::NoneTransactions))?;
+        let receipts = receiptsOp
+            .ok_or_else(|| Validation(ValidationError::NoneReceipts))?;
+
         if header.number % self.epoch == 0 {
-            let suppose_vals = self.query_validators(header, state)?;
+            let suppose_vals = self.cached_validators.as_ref()
+                .ok_or_else(|| Validation(ValidationError::CacheValidatorsUnknown))?;
             let validator_bytes =
                 &header.extra_data[VANITY_LENGTH..(header.extra_data.len() - SIGNATURE_LENGTH)];
             let header_vals = snapshot::parse_validators(validator_bytes)?;
-            if header_vals != suppose_vals {
+            if header_vals != *suppose_vals {
                 return Err(Validation(ValidationError::EpochChgWrongValidators {
-                    expect: suppose_vals,
+                    expect: suppose_vals.clone(),
                     got: header_vals,
                 }));
             }
@@ -391,7 +391,7 @@ impl Parlia {
                 expect_system_txs.push(slash_tx);
             }
         }
-        let mut reward: ethnum::U256 = state.get_balance(*util::SYSTEM_ACCOUNT)?;
+        let mut reward: ethnum::U256 = ethnum::U256::ZERO;
         for i in 0..transactions.len() {
             let tx = transactions.get(i).unwrap();
             let r = receipts.get(i).unwrap();
@@ -499,6 +499,10 @@ impl Parlia {
     where
         S: StateReader + HeaderReader,
     {
+        // cache before executed, then validate epoch
+        if header.number % self.epoch == 0 {
+            self.cached_validators = Some(self.query_validators(header, state)?);
+        }
         contract_upgrade::upgrade_build_in_system_contract(&self.chain_spec, &header.number, state)
     }
 
@@ -541,7 +545,7 @@ impl Parlia {
             if block_number % CHECKPOINT_INTERVAL == 0 {
                 if let Some(new_snap) = Snapshot::load(txn, block_hash)? {
                     snap = new_snap;
-                    info!("snap find from db {} {:?}", block_number, block_hash);
+                    debug!("snap find from db {} {:?}", block_number, block_hash);
                     break;
                 }
             }

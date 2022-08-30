@@ -324,7 +324,8 @@ pub enum ValidationError {
     SystemTxWrong {
         expect: Message,
         got: Message,
-    }
+    },
+    CacheValidatorsUnknown,
 }
 
 impl From<CliqueError> for ValidationError {
