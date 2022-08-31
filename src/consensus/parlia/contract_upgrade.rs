@@ -25,11 +25,11 @@ pub fn upgrade_build_in_system_contract<'r, S>(
     where S: StateReader+HeaderReader,
 {
     if config.is_on_ramanujan(block_number) {
-        apply_system_contract_upgrade(MIRRORSYNC_UPGRADE_CONFIG.get(&config.params.chain_id.0).unwrap(), statedb)?;
+        apply_system_contract_upgrade(RAMANUJAN_UPGRADE_CONFIG.get(&config.params.chain_id.0).unwrap(), statedb)?;
     }
 
-    if config.is_on_mirror_sync(block_number) {
-        apply_system_contract_upgrade(MIRRORSYNC_UPGRADE_CONFIG.get(&config.params.chain_id.0).unwrap(), statedb)?;
+    if config.is_on_niels(block_number) {
+        apply_system_contract_upgrade(NIELS_UPGRADE_CONFIG.get(&config.params.chain_id.0).unwrap(), statedb)?;
     }
 
     if config.is_on_mirror_sync(block_number) {
