@@ -391,35 +391,7 @@ impl Parlia {
                 expect_system_txs.push(slash_tx);
             }
         }
-        let mut reward: ethnum::U256 = ethnum::U256::ZERO;
-        for i in 0..transactions.len() {
-            let tx = transactions.get(i).unwrap();
-            let r = receipts.get(i).unwrap();
-            if i == 0 {
-                reward = reward
-                    + ethnum::U256::new(
-                        tx.message
-                            .max_fee_per_gas()
-                            .as_u256()
-                            .mul(r.cumulative_gas_used.as_u256())
-                            .as_u128(),
-                    );
-            } else {
-                let last_used = receipts.get(i - 1).unwrap().cumulative_gas_used;
-                reward = reward
-                    + ethnum::U256::new(
-                        tx.message
-                            .max_fee_per_gas()
-                            .as_u256()
-                            .mul((r.cumulative_gas_used - last_used).as_u256())
-                            .as_u128(),
-                    );
-            }
-            // if SYSTEM_ACCOUNT received value, reward to validators and SystemReward contract
-            if tx.message.action() == TransactionAction::Call(*util::SYSTEM_ACCOUNT) {
-                reward += tx.message.value();
-            }
-        }
+        let mut reward: ethnum::U256 = state.get_balance(*util::SYSTEM_ACCOUNT)?;
         if reward > ethnum::U256::new(0) {
             let sys_reward = reward >> SYSTEM_REWARD_PERCENT;
             if sys_reward > ethnum::U256::new(0) {

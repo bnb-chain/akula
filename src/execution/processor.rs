@@ -363,7 +363,11 @@ where
             self.state.set_balance(address, balance)?;
         }
 
-        for (i, txn) in self.block.transactions.iter().enumerate() {
+        let systemTxs: Vec<&MessageWithSender> = self.block.transactions.iter()
+            .filter(|t| util::is_system_transaction(&t.message, &t.sender, &self.header.beneficiary)).collect();
+        let plainTxs: Vec<&MessageWithSender> = self.block.transactions.iter()
+            .filter(|t| !util::is_system_transaction(&t.message, &t.sender, &self.header.beneficiary)).collect();
+        for (i, txn) in plainTxs.iter().enumerate() {
             if !(pred)(i, txn) {
                 return Ok(receipts);
             }
@@ -387,6 +391,20 @@ where
                 Some(&self.block.transactions),
                 Some(&receipts),
             )?;
+        }
+        for (i, txn) in systemTxs.iter().enumerate() {
+            if !(pred)(i, txn) {
+                return Ok(receipts);
+            }
+
+            self.validate_transaction(&txn.message, txn.sender)
+                .map_err(|e| match e {
+                    TransactionValidationError::Validation(error) => {
+                        DuoError::Validation(ValidationError::BadTransaction { index: i, error })
+                    }
+                    TransactionValidationError::Internal(e) => DuoError::Internal(e),
+                })?;
+            receipts.push(self.execute_transaction(&txn.message, txn.sender)?);
         }
 
         for change in self.engine.finalize(
