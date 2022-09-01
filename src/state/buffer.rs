@@ -304,6 +304,7 @@ where
         let mut account_change_table = self.txn.cursor(tables::AccountChangeSet)?;
         for (block_number, account_entries) in std::mem::take(&mut self.account_changes) {
             for (address, account) in account_entries {
+                info!("account history block {}, acount {:?}, {:?}", block_number, address, account);
                 account_change_table
                     .append_dup(block_number, AccountChange { address, account })?;
             }
@@ -357,6 +358,7 @@ where
         for &address in account_addresses {
             let account = self.accounts[&address];
 
+            info!("account state block {}, acount {:?}, {:?}", self.block_number, address, account);
             if let Some(account) = account {
                 account_table.upsert(address, account)?;
             } else if account_table.seek_exact(address)?.is_some() {
