@@ -149,7 +149,7 @@ hashbrown = { version = "0.12.0", features = [
   "ahash-compile-time-rng",
 ] }
 dashmap = "5.3"
-tendermint = { git = " https://github.com/GalaIO/tendermint.git", rev = "5a91a2ca"}
+tendermint = { git = " https://github.com/GalaIO/tendermint.git", rev = "69698517"}
 
 [target.'cfg(target_os = "linux")'.dependencies]
 e2p-fileflags = { git = "https://github.com/michaellass/e2p-fileflags" }

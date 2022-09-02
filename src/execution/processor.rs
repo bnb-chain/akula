@@ -20,7 +20,7 @@ use std::{
 use TransactionAction;
 use hex_literal::hex;
 use lazy_static::lazy_static;
-use tracing::info;
+use tracing::*;
 
 pub struct ExecutionProcessor<'r, 'tracer, 'analysis, 'e, 'h, 'b, 'c, S>
 where
@@ -330,7 +330,7 @@ where
         message: &Message,
         sender: Address,
     ) -> Result<Receipt, DuoError> {
-        info!("execute_transaction {:?} {:?}", message.hash(), sender);
+        debug!("execute_transaction {:?} {:?}", message.hash(), sender);
         let beneficiary = self.engine.get_beneficiary(self.header);
 
         let parlia = is_parlia(self.engine.name());

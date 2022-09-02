@@ -471,7 +471,7 @@ impl Parlia {
     where
         S: StateReader + HeaderReader,
     {
-        info!("new_block {} {:?}", header.number, header.hash());
+        debug!("new_block {} {:?}", header.number, header.hash());
         // cache before executed, then validate epoch
         if header.number % self.epoch == 0 {
             let parent_header = state.db().read_parent_header(header)?
