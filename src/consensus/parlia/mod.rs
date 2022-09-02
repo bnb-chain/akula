@@ -471,9 +471,15 @@ impl Parlia {
     where
         S: StateReader + HeaderReader,
     {
+        info!("new_block {} {:?}", header.number, header.hash());
         // cache before executed, then validate epoch
         if header.number % self.epoch == 0 {
-            self.cached_validators = Some(self.query_validators(header, state)?);
+            let parent_header = state.db().read_parent_header(header)?
+                .ok_or_else(|| Validation(ValidationError::UnknownHeader {
+                    number: BlockNumber(header.number.0-1),
+                    hash: header.parent_hash
+                }))?;
+            self.cached_validators = Some(self.query_validators(&parent_header, state)?);
         }
         contract_upgrade::upgrade_build_in_system_contract(&self.chain_spec, &header.number, state)
     }
