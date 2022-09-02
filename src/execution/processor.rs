@@ -330,6 +330,7 @@ where
         message: &Message,
         sender: Address,
     ) -> Result<Receipt, DuoError> {
+        info!("execute_transaction {:?} {:?}", message.hash(), sender);
         let beneficiary = self.engine.get_beneficiary(self.header);
 
         let parlia = is_parlia(self.engine.name());
