@@ -7,14 +7,19 @@ use crate::{
     mining::{state::MiningConfig, StagedMining},
     models::*,
     stagedsync::stage::*,
-    stages::CreateBlock,
+    stages::{CreateBlock, ExecBlock, MiningBlock, MiningState},
     StageId,
 };
+use bytes::Bytes;
 use futures::future::BoxFuture;
-use std::time::{Duration, Instant};
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 use tokio::sync::watch::{Receiver as WatchReceiver, Sender as WatchSender};
 use tracing::*;
-
 struct QueuedStage<'db, E>
 where
     E: EnvironmentKind,
@@ -124,9 +129,78 @@ where
         })
     }
 
-    pub fn enable_mining(&mut self, config: MiningConfig) {
+    pub fn enable_mining(&mut self, config: Arc<Mutex<MiningConfig>>, chain_spec: ChainSpec) {
+        // let conf = Rc::new(RefCell::new(config));
+        //let conf = Arc::new(Mutex::new(config));
         let mut mining = StagedMining::new();
-        mining.push(CreateBlock { config });
+        let miner = MiningState {
+            mining_block: MiningBlock {
+                header: BlockHeader {
+                    parent_hash: H256::zero(),
+                    ommers_hash: H256::zero(),
+                    beneficiary: Address::zero(),
+                    state_root: H256::zero(),
+                    transactions_root: H256::zero(),
+                    receipts_root: H256::zero(),
+                    logs_bloom: Bloom::zero(),
+                    difficulty: U256::ZERO,
+                    number: BlockNumber(0),
+                    gas_limit: 0,
+                    gas_used: 0,
+                    timestamp: 0,
+                    extra_data: Bytes::new(),
+                    mix_hash: H256::zero(),
+                    nonce: H64::zero(),
+                    base_fee_per_gas: None,
+                },
+                uncles: vec![],
+            },
+        };
+        mining.push(CreateBlock {
+            config: Arc::clone(&config),
+            miner,
+            chain_spec,
+        });
+        info!("createBlock stage enabled");
+        // mining.push(ExecBlock {
+        //     config: config,
+        //     miner,
+        //     chain_spec,
+        // });
+        // TODO other stages
+        self.staged_mining = Some(mining);
+    }
+
+    pub fn enable_mining_exec(&mut self, config: Arc<Mutex<MiningConfig>>, chain_spec: ChainSpec) {
+        let mut mining = StagedMining::new();
+        let miner = MiningState {
+            mining_block: MiningBlock {
+                header: BlockHeader {
+                    parent_hash: H256::zero(),
+                    ommers_hash: H256::zero(),
+                    beneficiary: Address::zero(),
+                    state_root: H256::zero(),
+                    transactions_root: H256::zero(),
+                    receipts_root: H256::zero(),
+                    logs_bloom: Bloom::zero(),
+                    difficulty: U256::ZERO,
+                    number: BlockNumber(0),
+                    gas_limit: 0,
+                    gas_used: 0,
+                    timestamp: 0,
+                    extra_data: Bytes::new(),
+                    mix_hash: H256::zero(),
+                    nonce: H64::zero(),
+                    base_fee_per_gas: None,
+                },
+                uncles: vec![],
+            },
+        };
+        mining.push(ExecBlock {
+            config: config,
+            miner,
+            chain_spec,
+        });
         // TODO other stages
         self.staged_mining = Some(mining);
     }

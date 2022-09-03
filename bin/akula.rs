@@ -29,12 +29,11 @@ use jsonrpsee::{
 };
 use std::{
     collections::HashSet, fs::OpenOptions, future::pending, io::Write, net::SocketAddr, panic,
-    sync::Arc, time::Duration,
+    sync::{Arc, Mutex},, time::Duration,
 };
 use tokio::time::sleep;
 use tracing::*;
 use tracing_subscriber::prelude::*;
-
 #[derive(Parser)]
 #[clap(name = "Akula", about = "Next-generation Ethereum implementation.")]
 pub struct Opt {
@@ -234,6 +233,12 @@ fn main() -> anyhow::Result<()> {
                     chainspec.clone(),
                     Some(opt.engine_listen_address),
                 )?;
+                let consens_config_exec = engine_factory(
+                    Some(db.clone()),
+                    chainspec.clone(),
+                    Some(opt.engine_listen_address),
+                )?;
+
                 let consensus: Arc<dyn Consensus> = engine_factory(
                     Some(db.clone()),
                     chainspec.clone(),
@@ -243,7 +248,7 @@ fn main() -> anyhow::Result<()> {
 
                 let network_id = chainspec.params.network_id;
 
-                let chain_config = ChainConfig::from(chainspec);
+                let chain_config = ChainConfig::from(chainspec.clone());
 
                 if !opt.no_rpc {
                     tokio::spawn({
@@ -541,15 +546,25 @@ fn main() -> anyhow::Result<()> {
                     if can_mine {
                         let config = MiningConfig {
                             enabled: true,
-                            ether_base: opt.mine_etherbase.unwrap(),
-                            secret_key: opt.mine_secretkey.unwrap(),
-                            extra_data: opt.mine_extradata.map(Bytes::from),
+                            ether_base: opt.mine_etherbase.unwrap().clone(),
+                            secret_key: opt.mine_secretkey.unwrap().clone(),
+                            extra_data: opt.mine_extradata.map(Bytes::from).clone(),
                             consensus: consens_config,
                             dao_fork_block: Some(BigInt::new(num_bigint::Sign::Plus, vec![])),
                             dao_fork_support: false,
                         };
-                        config.dao_fork_block.as_ref().unwrap();
-                        staged_sync.enable_mining(config);
+                        // let config = Rc::new(RefCell::new(MiningConfig {
+                        //     enabled: true,
+                        //     ether_base: opt.mine_etherbase.unwrap().clone(),
+                        //     secret_key: opt.mine_secretkey.unwrap().clone(),
+                        //     extra_data: opt.mine_extradata.map(Bytes::from).clone(),
+                        //     consensus: consens_config,
+                        //     dao_fork_block: Some(BigInt::new(num_bigint::Sign::Plus, vec![])),
+                        //     dao_fork_support: false,
+                        // }));
+                        let conf = Arc::new(Mutex::new(config));
+                        staged_sync.enable_mining(Arc::clone(&conf), chainspec.clone());
+                        staged_sync.enable_mining_exec(Arc::clone(&conf), chainspec.clone());
                         info!("Mining enabled");
                     }
                 };

@@ -7,7 +7,12 @@ use bytes::Bytes;
 use ethereum_types::Address;
 use ethnum::U256;
 use primitive_types::H256;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    sync::{Arc, Mutex},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 #[derive(Debug)]
 pub struct BlockProposal {
@@ -54,7 +59,7 @@ pub fn create_proposal(
 
 pub fn create_block_header(
     parent_header: &BlockHeader,
-    config: &MiningConfig,
+    config: Arc<Mutex<MiningConfig>>,
 ) -> anyhow::Result<BlockHeader> {
     let timestamp = now();
     if timestamp <= parent_header.timestamp {
@@ -64,10 +69,10 @@ pub fn create_block_header(
     Ok(BlockHeader {
         parent_hash: parent_header.hash(),
         number: parent_header.number + 1,
-        beneficiary: config.get_ether_base(),
+        beneficiary: config.lock().unwrap().get_ether_base(),
         /// Update in the prepare func.
         difficulty: U256::ZERO,
-        extra_data: config.get_extra_data(),
+        extra_data: config.lock().unwrap().get_extra_data(),
         timestamp,
         ommers_hash: H256::zero(),
         state_root: H256::zero(),

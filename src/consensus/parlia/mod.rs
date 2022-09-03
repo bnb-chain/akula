@@ -1,10 +1,10 @@
 //! Implementation of the BSC's POSA Engine.
 #![allow(missing_docs)]
-mod contract_upgrade;
-mod snapshot;
+pub mod contract_upgrade;
+pub mod snapshot;
 mod state;
-mod util;
-pub use snapshot::Snapshot;
+pub mod util;
+pub use snapshot::SnapRW;
 pub use state::ParliaNewBlockState;
 pub use util::{is_system_transaction, SYSTEM_ACCOUNT};
 
