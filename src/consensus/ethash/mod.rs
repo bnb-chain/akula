@@ -194,6 +194,8 @@ impl Consensus for Ethash {
         &self,
         header: &BlockHeader,
         ommers: &[BlockHeader],
+        _transactions: Option<&Vec<MessageWithSender>>,
+        _state: ConsensusFinalizeState,
     ) -> anyhow::Result<Vec<FinalizationChange>> {
         let block_number = header.number;
         let block_reward = self.block_reward.for_block(block_number);

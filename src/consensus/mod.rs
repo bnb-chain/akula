@@ -7,12 +7,7 @@ mod parlia;
 
 use self::fork_choice_graph::ForkChoiceGraph;
 pub use self::{base::*, beacon::*, blockchain::*, clique::*, ethash::*, parlia::*};
-use crate::{
-    BlockReader,
-    kv::{mdbx::*, MdbxWithDirHandle},
-    models::*,
-    state::{IntraBlockState, StateReader},
-};
+use crate::{BlockReader, HeaderReader, kv::{mdbx::*, MdbxWithDirHandle}, models::*, state::{IntraBlockState, StateReader}};
 use anyhow::{bail};
 use derive_more::{Display, From};
 use mdbx::{EnvironmentKind, TransactionKind};
@@ -45,16 +40,84 @@ pub enum ConsensusState {
 impl ConsensusState {
     pub(crate) fn recover<T: TransactionKind, E: EnvironmentKind>(
         tx: &MdbxTransaction<'_, T, E>,
-        chainspec: &ChainSpec,
+        chain_spec: &ChainSpec,
         starting_block: BlockNumber,
     ) -> anyhow::Result<ConsensusState> {
-        Ok(match chainspec.consensus.seal_verification {
+        Ok(match chain_spec.consensus.seal_verification {
             SealVerificationParams::Ethash { .. } => ConsensusState::Stateless,
             SealVerificationParams::Clique { period: _, epoch } => {
-                ConsensusState::Clique(recover_clique_state(tx, chainspec, epoch, starting_block)?)
-            }
+                ConsensusState::Clique(recover_clique_state(tx, chain_spec, epoch, starting_block)?)
+            },
             SealVerificationParams::Beacon { .. } => ConsensusState::Stateless,
             SealVerificationParams::Parlia {..} => ConsensusState::Stateless,
+        })
+    }
+}
+
+// pub enum ConsensusNewHeaderState {
+//     Stateless,
+//     Parlia(ParliaNewHeaderState),
+// }
+//
+// impl ConsensusNewHeaderState {
+//     pub(crate) fn handle<T: TransactionKind, E: EnvironmentKind>(
+//         tx: &MdbxTransaction<'_, T, E>,
+//         chain_spec: &ChainSpec,
+//     ) -> anyhow::Result<ConsensusNewHeaderState> {
+//         Ok(match chain_spec.consensus.seal_verification {
+//             SealVerificationParams::Ethash { .. } => ConsensusNewHeaderState::Stateless,
+//             SealVerificationParams::Clique { .. } => ConsensusNewHeaderState::Stateless,
+//             SealVerificationParams::Beacon { .. } => ConsensusNewHeaderState::Stateless,
+//             SealVerificationParams::Parlia { .. } => ConsensusNewHeaderState::Stateless,
+//         })
+//     }
+// }
+
+pub enum ConsensusNewBlockState {
+    Stateless,
+    Parlia(ParliaNewBlockState),
+}
+
+impl ConsensusNewBlockState {
+    pub(crate) fn handle<'r, S>(
+        chain_spec: &ChainSpec,
+        header: &BlockHeader,
+        state: &mut IntraBlockState<'r, S>,
+    ) -> anyhow::Result<ConsensusNewBlockState>
+        where
+            S: StateReader + HeaderReader,
+    {
+        Ok(match chain_spec.consensus.seal_verification {
+            SealVerificationParams::Parlia { .. } => {
+                ConsensusNewBlockState::Parlia(parse_parlia_new_block_state(chain_spec, header, state)?)
+            },
+            _ => {
+                ConsensusNewBlockState::Stateless
+            },
+        })
+    }
+}
+
+pub enum ConsensusFinalizeState {
+    Stateless,
+    Parlia(ParliaFinalizeState),
+}
+
+impl ConsensusFinalizeState {
+    pub(crate) fn handle<S>(
+        engine: &dyn Consensus,
+        state: &mut IntraBlockState<S>,
+    ) -> anyhow::Result<ConsensusFinalizeState>
+        where
+            S: StateReader + HeaderReader,
+    {
+        Ok(match engine.name() {
+            PARLIA_CONSENSUS => {
+                ConsensusFinalizeState::Parlia(parse_parlia_finalize_state(state)?)
+            },
+            _ => {
+                ConsensusFinalizeState::Stateless
+            },
         })
     }
 }
@@ -99,6 +162,8 @@ pub trait Consensus: Debug + Send + Sync + 'static {
         &self,
         header: &BlockHeader,
         ommers: &[BlockHeader],
+        transactions: Option<&Vec<MessageWithSender>>,
+        state: ConsensusFinalizeState,
     ) -> anyhow::Result<Vec<FinalizationChange>>;
 
     /// See YP Section 11.3 "Reward Application".
@@ -109,6 +174,16 @@ pub trait Consensus: Debug + Send + Sync + 'static {
     /// To be overridden for stateful consensus engines, e. g. PoA engines with a signer list.
     #[allow(unused_variables)]
     fn set_state(&mut self, state: ConsensusState) {}
+
+    /// To be overridden for stateful consensus engines, e. g. PoA engines with a signer list.
+    #[allow(unused_variables)]
+    fn new_block(
+        &mut self,
+        header: &BlockHeader,
+        state: ConsensusNewBlockState
+    ) -> Result<(), DuoError> {
+        Ok(())
+    }
 
     /// To be overridden for stateful consensus engines.
     ///
@@ -323,6 +398,7 @@ pub enum ValidationError {
         got: Message,
     },
     CacheValidatorsUnknown,
+    WrongConsensusParam,
 }
 
 impl From<CliqueError> for ValidationError {

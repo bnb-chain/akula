@@ -30,6 +30,7 @@ where
     header: &'h BlockHeader,
     block: &'b BlockBodyWithSenders,
     block_spec: &'c BlockExecutionSpec,
+    chain_spec: &'c ChainSpec,
     cumulative_gas_used: u64,
 }
 
@@ -226,6 +227,7 @@ where
         header: &'h BlockHeader,
         block: &'b BlockBodyWithSenders,
         block_spec: &'c BlockExecutionSpec,
+        chain_spec: &'c ChainSpec,
     ) -> Self {
         Self {
             state: IntraBlockState::new(state),
@@ -235,6 +237,7 @@ where
             header,
             block,
             block_spec,
+            chain_spec,
             cumulative_gas_used: 0,
         }
     }
@@ -351,48 +354,23 @@ where
         &mut self,
         mut pred: impl FnMut(usize, &MessageWithSender) -> bool,
     ) -> Result<Vec<Receipt>, DuoError> {
-        // TODO tmp parlia new block move outside, because trait's inner generic problem fix next time
-        if let Some(p) = self.engine.parlia() {
-            p.new_block(self.header, &mut self.state)?;
-        }
 
         let mut receipts = Vec::with_capacity(self.block.transactions.len());
         for (&address, &balance) in &self.block_spec.balance_changes {
             self.state.set_balance(address, balance)?;
         }
 
-        let system_txs: Vec<&MessageWithSender> = self.block.transactions.iter()
-            .filter(|t| util::is_system_transaction(&t.message, &t.sender, &self.header.beneficiary)).collect();
-        let plain_txs: Vec<&MessageWithSender> = self.block.transactions.iter()
-            .filter(|t| !util::is_system_transaction(&t.message, &t.sender, &self.header.beneficiary)).collect();
-        for (i, txn) in plain_txs.iter().enumerate() {
+        let mut system_txs = Vec::new();
+        let parlia = is_parlia(self.engine.name());
+
+        for (i, txn) in self.block.transactions.iter().enumerate() {
             if !(pred)(i, txn) {
                 return Ok(receipts);
             }
 
-            self.validate_transaction(&txn.message, txn.sender)
-                .map_err(|e| match e {
-                    TransactionValidationError::Validation(error) => {
-                        DuoError::Validation(ValidationError::BadTransaction { index: i, error })
-                    }
-                    TransactionValidationError::Internal(e) => DuoError::Internal(e),
-                })?;
-            receipts.push(self.execute_transaction(&txn.message, txn.sender)?);
-        }
-
-        // TODO tmp parlia real finalize move outside, because trait's inner generic problem fix next time
-        if let Some(p) = self.engine.parlia() {
-            p.outer_finalize(
-                self.header,
-                &self.block.ommers,
-                &mut self.state,
-                Some(&self.block.transactions),
-                Some(&receipts),
-            )?;
-        }
-        for (i, txn) in system_txs.iter().enumerate() {
-            if !(pred)(i, txn) {
-                return Ok(receipts);
+            if parlia && util::is_system_transaction(&txn.message, &txn.sender, &self.header.beneficiary) {
+                system_txs.push(txn);
+                continue;
             }
 
             self.validate_transaction(&txn.message, txn.sender)
@@ -408,6 +386,8 @@ where
         for change in self.engine.finalize(
             self.header,
             &self.block.ommers,
+            Some(&self.block.transactions),
+            ConsensusFinalizeState::handle(self.engine, &mut self.state)?,
         )? {
             match change {
                 FinalizationChange::Reward {
@@ -420,6 +400,21 @@ where
             }
         }
 
+        for (i, txn) in system_txs.iter().enumerate() {
+            if !(pred)(i, txn) {
+                return Ok(receipts);
+            }
+
+            self.validate_transaction(&txn.message, txn.sender)
+                .map_err(|e| match e {
+                    TransactionValidationError::Validation(error) => {
+                        DuoError::Validation(ValidationError::BadTransaction { index: i, error })
+                    }
+                    TransactionValidationError::Internal(e) => DuoError::Internal(e),
+                })?;
+            receipts.push(self.execute_transaction(&txn.message, txn.sender)?);
+        }
+
         Ok(receipts)
     }
 
@@ -428,6 +423,8 @@ where
     }
 
     pub fn execute_and_check_block(&mut self) -> Result<Vec<Receipt>, DuoError> {
+
+        self.engine.new_block(self.header, ConsensusNewBlockState::handle(self.chain_spec, self.header, &mut self.state)?)?;
         let receipts = self.execute_block_no_post_validation()?;
 
         let gas_used = receipts.last().map(|r| r.cumulative_gas_used).unwrap_or(0);
@@ -544,6 +541,7 @@ mod tests {
             &header,
             &block,
             &block_spec,
+            &MAINNET,
         );
 
         let receipt = processor.execute_transaction(&message, sender).unwrap();
@@ -587,6 +585,7 @@ mod tests {
             &header,
             &block,
             &block_spec,
+            &MAINNET,
         );
 
         processor
@@ -652,6 +651,7 @@ mod tests {
             &header,
             &block,
             &block_spec,
+            &MAINNET,
         );
 
         let t = |action, input, nonce, gas_limit| Message::EIP1559 {
@@ -770,6 +770,7 @@ mod tests {
             &header,
             &block,
             &block_spec,
+            &MAINNET,
         );
 
         processor.state().add_to_balance(originator, ETHER).unwrap();
@@ -877,6 +878,7 @@ mod tests {
             &header,
             &block,
             &block_spec,
+            &MAINNET,
         );
         processor.state().add_to_balance(caller, ETHER).unwrap();
 
@@ -933,6 +935,7 @@ mod tests {
             &header,
             &block,
             &block_spec,
+            &MAINNET,
         );
 
         processor.state().add_to_balance(caller, ETHER).unwrap();

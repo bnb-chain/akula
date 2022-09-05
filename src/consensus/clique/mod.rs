@@ -22,7 +22,8 @@ use secp256k1::{
 };
 use sha3::{Digest, Keccak256};
 use std::{sync::Arc, time::Duration, unreachable};
-use crate::consensus::Parlia;
+use crate::consensus::{ConsensusFinalizeState, Parlia};
+use crate::models::MessageWithSender;
 
 const EXTRA_VANITY: usize = 32;
 const EXTRA_SEAL: usize = 65;
@@ -219,6 +220,8 @@ impl Consensus for Clique {
         &self,
         block: &BlockHeader,
         _ommers: &[BlockHeader],
+        _transactions: Option<&Vec<MessageWithSender>>,
+        _state: ConsensusFinalizeState,
     ) -> anyhow::Result<Vec<FinalizationChange>> {
         let clique_block = CliqueBlock::from_header(block)?;
 

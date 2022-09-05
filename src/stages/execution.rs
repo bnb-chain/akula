@@ -75,6 +75,7 @@ fn execute_batch_of_blocks<E: EnvironmentKind>(
                 p.snapshot(tx, BlockNumber(header.number.0-1), header.parent_hash)?;
             }
         }
+
         let mut call_tracer = CallTracer::default();
         let receipts = ExecutionProcessor::new(
             &mut buffer,
@@ -84,6 +85,7 @@ fn execute_batch_of_blocks<E: EnvironmentKind>(
             &header,
             &block,
             &block_spec,
+            &chain_config,
         )
         .execute_and_write_block()
         .map_err(|e| match e {

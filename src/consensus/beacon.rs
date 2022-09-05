@@ -220,6 +220,8 @@ impl Consensus for BeaconConsensus {
         &self,
         header: &crate::models::BlockHeader,
         ommers: &[crate::models::BlockHeader],
+        _transactions: Option<&Vec<MessageWithSender>>,
+        _state: ConsensusFinalizeState,
     ) -> anyhow::Result<Vec<super::FinalizationChange>> {
         let block_number = header.number;
         let block_reward = self.block_reward.for_block(block_number);

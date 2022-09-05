@@ -32,6 +32,7 @@ use std::{
 use tokio_stream::{Stream, StreamExt};
 use tonic::Response;
 use tracing::*;
+use crate::consensus::ConsensusFinalizeState;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StateUpdate {
@@ -265,7 +266,7 @@ where
 
     let mut analysis_cache = AnalysisCache::default();
     let mut parlia = false;
-    if let SealVerificationParams::Parlia { period: _, epoch: _ } = chain_spec.consensus.seal_verification {
+    if let SealVerificationParams::Parlia { .. } = chain_spec.consensus.seal_verification {
             parlia = true;
     }
     for (sender, message, trace_types) in calls {
@@ -398,7 +399,7 @@ where
 
     let mut rewards = vec![];
     if let Some(ommers) = finalization {
-        for change in engine_factory(None, chain_spec, None)?.finalize(&header, &ommers)? {
+        for change in engine_factory(None, chain_spec, None)?.finalize(&header, &ommers, None, ConsensusFinalizeState::Stateless)? {
             match change {
                 crate::consensus::FinalizationChange::Reward {
                     address,
