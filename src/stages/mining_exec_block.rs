@@ -35,7 +35,7 @@ pub const DAOFORKEXTRARANG: i32 = 10;
 #[derive(Debug)]
 pub struct ExecBlock {
     pub config: Arc<Mutex<MiningConfig>>,
-    pub miner: MiningState,
+    pub mining_block: Arc<Mutex<MiningBlock>>,
     pub chain_spec: ChainSpec,
 }
 
@@ -79,7 +79,7 @@ where
 
         let parent_header = get_header(tx, parent_number)?;
 
-        let current = &self.miner.mining_block;
+        let current = &self.mining_block.lock().unwrap();
         if is_clique(self.config.lock().unwrap().consensus.name()) {
             // If we are care about TheDAO hard-fork check whether to override the extra-data or not
             if self.config.lock().unwrap().dao_fork_support
@@ -99,7 +99,7 @@ where
             let mut state = IntraBlockState::new(&mut buffer);
             contract_upgrade::upgrade_build_in_system_contract(
                 &self.chain_spec,
-                &self.miner.mining_block.header.number,
+                &self.mining_block.lock().unwrap().header.number,
                 &mut state,
             );
         }

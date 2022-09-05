@@ -34,13 +34,8 @@ pub const DAOFORKEXTRARANG: i32 = 10;
 #[derive(Debug)]
 pub struct CreateBlock {
     pub config: Arc<Mutex<MiningConfig>>,
+    pub mining_block: Arc<Mutex<MiningBlock>>,
     pub chain_spec: ChainSpec,
-    pub miner: MiningState,
-}
-
-#[derive(Debug)]
-pub struct MiningState {
-    pub mining_block: MiningBlock,
 }
 
 #[derive(Debug)]

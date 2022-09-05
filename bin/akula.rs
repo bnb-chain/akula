@@ -376,6 +376,25 @@ fn main() -> anyhow::Result<()> {
                 });
 
                 // staged sync setup
+                let mut can_mine = true;
+                if opt.mine {
+                    if opt.exit_after_sync {
+                        warn!(
+                            "Conflicting options: --exit-after-sync is set, will not enable mining"
+                        );
+                        can_mine = false;
+                    }
+
+                    if opt.mine_etherbase.is_none() {
+                        warn!("Etherbase not set, will not enable mining");
+                        can_mine = false;
+                    }
+
+                    if opt.mine_secretkey.is_none() {
+                        warn!("No private key to sign blocks given, will not enable mining");
+                        can_mine = false;
+                    }
+                };
                 let mut staged_sync = stagedsync::StagedSync::new();
                 staged_sync.set_min_progress_to_commit_after_stage(if opt.prune {
                     u64::MAX
@@ -522,53 +541,68 @@ fn main() -> anyhow::Result<()> {
                     !opt.prune,
                 );
 
-                staged_sync.push(Finish, !opt.prune);
+                if can_mine {
+                    let config = MiningConfig {
+                        enabled: true,
+                        ether_base: opt.mine_etherbase.unwrap().clone(),
+                        secret_key: opt.mine_secretkey.unwrap().clone(),
+                        extra_data: opt.mine_extradata.map(Bytes::from).clone(),
+                        consensus: consens_config,
+                        dao_fork_block: Some(BigInt::new(num_bigint::Sign::Plus, vec![])),
+                        dao_fork_support: false,
+                    };
+                    let conf = Arc::new(Mutex::new(config));
+                    //staged_sync.enable_mining(Arc::clone(&conf), chainspec.clone());
+                    info!("Mining enabled");
+                    let mining_block = MiningBlock {
+                        header: BlockHeader {
+                            parent_hash: H256::zero(),
+                            ommers_hash: H256::zero(),
+                            beneficiary: Address::zero(),
+                            state_root: H256::zero(),
+                            transactions_root: H256::zero(),
+                            receipts_root: H256::zero(),
+                            logs_bloom: Bloom::zero(),
+                            difficulty: U256::ZERO,
+                            number: BlockNumber(0),
+                            gas_limit: 0,
+                            gas_used: 0,
+                            timestamp: 0,
+                            extra_data: Bytes::new(),
+                            mix_hash: H256::zero(),
+                            nonce: H64::zero(),
+                            base_fee_per_gas: None,
+                        },
+                        uncles: vec![],
+                    };
+                    let mining_block_mutex = Arc::new(Mutex::new(mining_block));
+                    staged_sync.push(
+                        CreateBlock {
+                            config: Arc::clone(&conf),
+                            mining_block: Arc::clone(&mining_block_mutex),
+                            chain_spec: chainspec.clone(),
+                        },
+                        false,
+                    );
 
-                if opt.mine {
-                    let mut can_mine = true;
-                    if opt.exit_after_sync {
-                        warn!(
-                            "Conflicting options: --exit-after-sync is set, will not enable mining"
-                        );
-                        can_mine = false;
-                    }
+                    staged_sync.push(
+                        ExecBlock {
+                            config: Arc::clone(&conf),
+                            mining_block: Arc::clone(&mining_block_mutex),
+                            chain_spec: chainspec.clone(),
+                        },
+                        false,
+                    );
 
-                    if opt.mine_etherbase.is_none() {
-                        warn!("Etherbase not set, will not enable mining");
-                        can_mine = false;
-                    }
-
-                    if opt.mine_secretkey.is_none() {
-                        warn!("No private key to sign blocks given, will not enable mining");
-                        can_mine = false;
-                    }
-
-                    if can_mine {
-                        let config = MiningConfig {
-                            enabled: true,
-                            ether_base: opt.mine_etherbase.unwrap().clone(),
-                            secret_key: opt.mine_secretkey.unwrap().clone(),
-                            extra_data: opt.mine_extradata.map(Bytes::from).clone(),
-                            consensus: consens_config,
-                            dao_fork_block: Some(BigInt::new(num_bigint::Sign::Plus, vec![])),
-                            dao_fork_support: false,
-                        };
-                        // let config = Rc::new(RefCell::new(MiningConfig {
-                        //     enabled: true,
-                        //     ether_base: opt.mine_etherbase.unwrap().clone(),
-                        //     secret_key: opt.mine_secretkey.unwrap().clone(),
-                        //     extra_data: opt.mine_extradata.map(Bytes::from).clone(),
-                        //     consensus: consens_config,
-                        //     dao_fork_block: Some(BigInt::new(num_bigint::Sign::Plus, vec![])),
-                        //     dao_fork_support: false,
-                        // }));
-                        let conf = Arc::new(Mutex::new(config));
-                        staged_sync.enable_mining(Arc::clone(&conf), chainspec.clone());
-                        staged_sync.enable_mining_exec(Arc::clone(&conf), chainspec.clone());
-                        info!("Mining enabled");
-                    }
+                    staged_sync.push(HashState::new(etl_temp_dir.clone(), None), !opt.prune);
+                    staged_sync.push_with_unwind_priority(
+                        Interhashes::new(etl_temp_dir.clone(), None),
+                        !opt.prune,
+                        1,
+                    );
+                    info!("createBlock stage enabled");
                 };
-
+                staged_sync.push(Finish, !opt.prune);
                 info!("Running staged sync");
                 staged_sync.run(&db).await?;
 
