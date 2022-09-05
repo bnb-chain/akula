@@ -20,19 +20,17 @@ mod snapshot;
 mod contract_upgrade;
 pub mod util;
 
-use super::{base::ConsensusEngineBase, *};
+use super::*;
 use crate::{
     execution::{
         analysis_cache::AnalysisCache,
         evmglue,
-        tracer::{CallKind, MessageKind, NoopTracer, Tracer},
+        tracer::NoopTracer,
     },
-    rpc::eth,
 };
-use std::{io::Read, str};
+use std::str;
 
 use crate::{
-    accessors::chain,
     consensus::{
         parlia::{
             snapshot::Snapshot,
@@ -41,23 +39,17 @@ use crate::{
         DuoError::Validation,
     },
     crypto::go_rng::{RngSource, Shuffle},
-    kv::{mdbx::*, tables, MdbxWithDirHandle},
-    models::*,
-    Buffer, HeaderReader,
+    kv::{mdbx::*},
+    models::*, HeaderReader,
 };
-use anyhow::format_err;
-use byteorder::{ByteOrder, LittleEndian};
 use bytes::{Buf, Bytes};
 use ethabi::FunctionOutputDecoder;
-use ethereum_types::{Address, H160, H256, U256};
-use futures::future::err;
+use ethereum_types::{Address, H256};
 use lru_cache::LruCache;
 use parking_lot::RwLock;
 use std::{
     collections::BTreeSet,
-    ops::{Add, Deref, Mul},
-    str::FromStr,
-    time::{Duration, SystemTime},
+    time::{SystemTime},
 };
 use tracing::*;
 use TransactionAction;
@@ -139,14 +131,14 @@ impl Consensus for Parlia {
         ForkChoiceMode::Difficulty(self.fork_choice_graph.clone())
     }
 
-    fn pre_validate_block(&self, block: &Block, state: &dyn BlockReader) -> Result<(), DuoError> {
+    fn pre_validate_block(&self, _block: &Block, _state: &dyn BlockReader) -> Result<(), DuoError> {
         Ok(())
     }
 
     fn finalize(
         &self,
-        header: &BlockHeader,
-        ommers: &[BlockHeader],
+        _header: &BlockHeader,
+        _ommers: &[BlockHeader],
     ) -> anyhow::Result<Vec<FinalizationChange>> {
         Ok(Vec::default())
     }
@@ -155,7 +147,7 @@ impl Consensus for Parlia {
         &self,
         header: &BlockHeader,
         parent: &BlockHeader,
-        with_future_timestamp_check: bool,
+        _with_future_timestamp_check: bool,
     ) -> Result<(), DuoError> {
         let num = header.number;
         let now = SystemTime::now()
@@ -320,17 +312,17 @@ impl Parlia {
     pub fn outer_finalize<'r, S>(
         &mut self,
         header: &BlockHeader,
-        ommers: &[BlockHeader],
+        _ommers: &[BlockHeader],
         state: &mut IntraBlockState<'r, S>,
-        transactionsOp: Option<&Vec<MessageWithSender>>,
-        receiptsOp: Option<&Vec<Receipt>>,
+        transactions_op: Option<&Vec<MessageWithSender>>,
+        receipts_op: Option<&Vec<Receipt>>,
     ) -> anyhow::Result<Vec<FinalizationChange>, DuoError>
     where
         S: StateReader + HeaderReader,
     {
-        let transactions = transactionsOp
+        let transactions = transactions_op
             .ok_or_else(|| Validation(ValidationError::NoneTransactions))?;
-        let receipts = receiptsOp
+        let _receipts = receipts_op
             .ok_or_else(|| Validation(ValidationError::NoneReceipts))?;
 
         if header.number % self.epoch == 0 {
@@ -378,7 +370,7 @@ impl Parlia {
             }
             if !signed_recently {
                 let slash_tx_data: Vec<u8> = slash_ins::functions::slash::encode_input(suppose_val);
-                let mut input_byte = Bytes::from(slash_tx_data);
+                let input_byte = Bytes::from(slash_tx_data);
                 let slash_tx = Message::Legacy {
                     chain_id: Some(self.chain_id),
                     nonce: Default::default(),
@@ -421,7 +413,7 @@ impl Parlia {
             }
             let validator_dis_data =
                 validator_ins::functions::deposit::encode_input(header.beneficiary);
-            let mut input_byte = Bytes::from(validator_dis_data);
+            let input_byte = Bytes::from(validator_dis_data);
             let validator_dis_tx = Message::Legacy {
                 chain_id: Some(self.chain_id),
                 nonce: Default::default(),
@@ -486,8 +478,8 @@ impl Parlia {
 
     fn query_snap(
         &self,
-        mut block_number: u64,
-        mut block_hash: H256,
+        block_number: u64,
+        block_hash: H256,
     ) -> Result<Snapshot, DuoError> {
         let mut snap_by_hash = self.recent_snaps.write();
         if let Some(new_snap) = snap_by_hash.get_mut(&block_hash) {
@@ -589,7 +581,7 @@ fn back_off_time(snap: &Snapshot, val: &Address) -> u64 {
     if snap.inturn(val) {
         return 0;
     } else {
-        let idx = snap.index_of(val) as usize;
+        let idx = snap.index_of(val);
         if idx < 0 {
             // The backOffTime does not matter when a validator is not authorized.
             return 0;
@@ -601,6 +593,6 @@ fn back_off_time(snap: &Snapshot, val: &Address) -> u64 {
             y.insert(i, i as u64);
         }
         y.shuffle(&mut rng);
-        y[idx]
+        y[idx as usize]
     }
 }

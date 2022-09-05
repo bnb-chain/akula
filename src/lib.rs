@@ -34,12 +34,10 @@ extern crate parity_bytes as parbytes;
 #[macro_use]
 extern crate lazy_static;
 extern crate secp256k1;
-#[macro_use]
 extern crate ethabi_derive;
 extern crate rustc_hex;
 #[macro_use]
 extern crate ethabi_contract;
-use ethabi::FunctionOutputDecoder;
 
 pub mod accessors;
 #[doc(hidden)]

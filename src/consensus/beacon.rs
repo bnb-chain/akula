@@ -191,9 +191,7 @@ impl Consensus for BeaconConsensus {
         header: &crate::models::BlockHeader,
         parent: &crate::models::BlockHeader,
         with_future_timestamp_check: bool,
-    ) -> Result<(), super::DuoError>
-
-    {
+    ) -> Result<(), super::DuoError> {
         self.base
             .validate_block_header(header, parent, with_future_timestamp_check)?;
 
@@ -220,11 +218,9 @@ impl Consensus for BeaconConsensus {
 
     fn finalize(
         &self,
-        header: &BlockHeader,
-        ommers: &[BlockHeader],
-    ) -> anyhow::Result<Vec<FinalizationChange>> {
-        let mut changes :Vec<FinalizationChange> = Vec::with_capacity(1 + ommers.len());
-
+        header: &crate::models::BlockHeader,
+        ommers: &[crate::models::BlockHeader],
+    ) -> anyhow::Result<Vec<super::FinalizationChange>> {
         let block_number = header.number;
         let block_reward = self.block_reward.for_block(block_number);
 

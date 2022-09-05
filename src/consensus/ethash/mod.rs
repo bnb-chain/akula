@@ -190,14 +190,11 @@ impl Consensus for Ethash {
         }
         Ok(())
     }
-
     fn finalize(
         &self,
         header: &BlockHeader,
         ommers: &[BlockHeader],
     ) -> anyhow::Result<Vec<FinalizationChange>> {
-        let mut changes: Vec<FinalizationChange> = Vec::with_capacity(1 + ommers.len());
-
         let block_number = header.number;
         let block_reward = self.block_reward.for_block(block_number);
 

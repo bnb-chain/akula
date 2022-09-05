@@ -4,8 +4,6 @@ use bytes::{Bytes, BytesMut};
 use fastrlp::*;
 use parity_scale_codec::*;
 use serde::*;
-use hash::keccak;
-use parbytes::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize, Encode, Decode)]
 /// Ethereum block header definition.

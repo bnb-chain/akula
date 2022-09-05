@@ -1,11 +1,6 @@
 use std::collections::HashMap;
-use std::sync::Arc;
-use ethereum_types::H256;
-use mdbx::WriteMap;
-use sha3::{Digest, Keccak256};
-use crate::{Buffer, HeaderReader, IntraBlockState, StateReader, StateWriter};
-use crate::kv::MdbxWithDirHandle;
-use crate::models::{Account, Address, BlockNumber, ChainSpec};
+use crate::{HeaderReader, IntraBlockState, StateReader};
+use crate::models::{Address, BlockNumber, ChainSpec};
 use std::str::FromStr;
 use rustc_hex::FromHex;
 use bytes::Bytes;

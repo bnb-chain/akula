@@ -711,8 +711,8 @@ impl RngSource {
         if n & (n-1) == 0 { // n is power of two, can mask
             return self.int63() & (n - 1)
         }
-        let (mut tmp, _) = ((1 as i64) << 63).overflowing_sub(1);
-        let (max, _) = tmp.overflowing_sub((1<<63) % n);
+        let (tmp, _) = (1_i64 << 63).overflowing_sub(1);
+        let (max, _) = tmp.overflowing_sub((1_i64 << 63) % n);
         let mut v = self.int63();
         while v > max {
             v = self.int63();
@@ -781,7 +781,6 @@ impl<T> Shuffle for Vec<T>{
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::crypto::*;
 
     #[test]
     fn test_shuffle_validators() {

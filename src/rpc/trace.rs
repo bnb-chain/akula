@@ -265,7 +265,7 @@ where
 
     let mut analysis_cache = AnalysisCache::default();
     let mut parlia = false;
-    if let SealVerificationParams::Parlia { period, epoch } = chain_spec.consensus.seal_verification {
+    if let SealVerificationParams::Parlia { period: _, epoch: _ } = chain_spec.consensus.seal_verification {
             parlia = true;
     }
     for (sender, message, trace_types) in calls {

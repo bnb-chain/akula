@@ -22,7 +22,6 @@ use std::{
 use tokio::time::Instant;
 use tokio_stream::StreamExt;
 use tracing::*;
-use std::ptr::null;
 use crate::consensus::{engine_factory};
 
 const HEADERS_UPPER_BOUND: usize = 1 << 10;
@@ -440,7 +439,7 @@ impl HeaderDownload {
         let chain_config = txn
             .get(tables::Config, ())?
             .ok_or_else(|| format_err!("No chain specification set"))?;
-        let mut consensus_engine = engine_factory(None, chain_config.clone(), None)?;
+        let consensus_engine = engine_factory(None, chain_config.clone(), None)?;
         info!(
             "Will download {} headers over {} requests",
             end - start + 1,

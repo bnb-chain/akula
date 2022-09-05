@@ -4,7 +4,6 @@ use async_trait::async_trait;
 use auto_impl::auto_impl;
 use std::{fmt::Debug, time::Instant};
 use crate::consensus::DuoError;
-use crate::stagedsync::stage::StageError::Validation;
 
 #[derive(Clone, Copy, Debug)]
 pub struct StageInput {

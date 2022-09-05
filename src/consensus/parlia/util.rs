@@ -17,14 +17,12 @@
 //! Utils implement
 
 use crate::consensus::parlia::*;
-use ethereum_types::{H64, H256, H520};
+use ethereum_types::H256;
 use lazy_static::lazy_static;
-use rustc_hex::ToHex;
 use std::{
-    collections::{BTreeSet, HashSet},
+    collections::{HashSet},
     str::FromStr,
 };
-use bytes::Buf;
 use ethereum_types::Address;
 use crate::crypto;
 use sha3::{Digest, Keccak256};
@@ -65,8 +63,7 @@ pub struct Signature([u8; 65]);
 
 pub fn public_to_address(public: &Public) -> Address {
     let hash = crypto::keccak256(public);
-    let mut result = Address::from_slice(&hash[12..]);
-    result
+    Address::from_slice(&hash[12..])
 }
 
 /// whether the contract is system or not
@@ -122,6 +119,7 @@ pub fn recover_creator(header: &BlockHeader, chain_id: ChainId) -> Result<Addres
 mod tests {
     use hex_literal::hex;
     use super::*;
+    use ethnum::u256;
 
     #[test]
     fn test_bsc_creator_recover() {

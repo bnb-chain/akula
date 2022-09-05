@@ -17,18 +17,15 @@ use crate::{
     consensus::{
         parlia::{util::recover_creator, ADDRESS_LENGTH, SIGNATURE_LENGTH, VANITY_LENGTH}, *
     },
-    kv::{mdbx::*, MdbxWithDirHandle, tables},
+    kv::{mdbx::*, tables},
     HeaderReader,
 };
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::Arc,
 };
-use std::ops::Sub;
 use ethereum_types::{Address};
-use tracing::{info, debug};
-use crate::p2p::types::GetBlockHeadersParams;
+use tracing::*;
 
 /// Snapshot for each block.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]

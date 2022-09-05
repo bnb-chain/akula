@@ -10,7 +10,7 @@ use crate::{consensus::{
     tables,
 }, models::{
     Block, BlockHeader, BlockNumber, ChainConfig, ChainId, ChainSpec, Seal
-}, BlockReader, state::{IntraBlockState, StateReader}, HeaderReader};
+}, BlockReader};
 use anyhow::bail;
 use bytes::Bytes;
 use ethereum_types::Address;
@@ -23,7 +23,6 @@ use secp256k1::{
 use sha3::{Digest, Keccak256};
 use std::{sync::Arc, time::Duration, unreachable};
 use crate::consensus::Parlia;
-use crate::models::{MessageWithSender, Receipt};
 
 const EXTRA_VANITY: usize = 32;
 const EXTRA_SEAL: usize = 65;
@@ -219,7 +218,7 @@ impl Consensus for Clique {
     fn finalize(
         &self,
         block: &BlockHeader,
-        ommers: &[BlockHeader],
+        _ommers: &[BlockHeader],
     ) -> anyhow::Result<Vec<FinalizationChange>> {
         let clique_block = CliqueBlock::from_header(block)?;
 

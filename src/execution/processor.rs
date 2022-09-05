@@ -15,11 +15,8 @@ use crate::{
 use bytes::Bytes;
 use std::{
     cmp::min,
-    collections::HashSet,
 };
 use TransactionAction;
-use hex_literal::hex;
-use lazy_static::lazy_static;
 use tracing::*;
 
 pub struct ExecutionProcessor<'r, 'tracer, 'analysis, 'e, 'h, 'b, 'c, S>
@@ -364,11 +361,11 @@ where
             self.state.set_balance(address, balance)?;
         }
 
-        let systemTxs: Vec<&MessageWithSender> = self.block.transactions.iter()
+        let system_txs: Vec<&MessageWithSender> = self.block.transactions.iter()
             .filter(|t| util::is_system_transaction(&t.message, &t.sender, &self.header.beneficiary)).collect();
-        let plainTxs: Vec<&MessageWithSender> = self.block.transactions.iter()
+        let plain_txs: Vec<&MessageWithSender> = self.block.transactions.iter()
             .filter(|t| !util::is_system_transaction(&t.message, &t.sender, &self.header.beneficiary)).collect();
-        for (i, txn) in plainTxs.iter().enumerate() {
+        for (i, txn) in plain_txs.iter().enumerate() {
             if !(pred)(i, txn) {
                 return Ok(receipts);
             }
@@ -393,7 +390,7 @@ where
                 Some(&receipts),
             )?;
         }
-        for (i, txn) in systemTxs.iter().enumerate() {
+        for (i, txn) in system_txs.iter().enumerate() {
             if !(pred)(i, txn) {
                 return Ok(receipts);
             }

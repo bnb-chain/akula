@@ -9,12 +9,11 @@ use self::fork_choice_graph::ForkChoiceGraph;
 pub use self::{base::*, beacon::*, blockchain::*, clique::*, ethash::*, parlia::*};
 use crate::{
     BlockReader,
-    HeaderReader,
     kv::{mdbx::*, MdbxWithDirHandle},
     models::*,
     state::{IntraBlockState, StateReader},
 };
-use anyhow::{bail, Error};
+use anyhow::{bail};
 use derive_more::{Display, From};
 use mdbx::{EnvironmentKind, TransactionKind};
 use parking_lot::Mutex;
@@ -24,8 +23,6 @@ use std::{
     sync::Arc,
 };
 use std::collections::BTreeSet;
-use std::fmt::Formatter;
-use ethnum::u256;
 use tokio::sync::watch;
 
 /// Column for parlia block state

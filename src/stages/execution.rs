@@ -5,7 +5,7 @@ use crate::{accessors, consensus::{engine_factory, CliqueError, ConsensusState, 
 }, h256_to_u256, kv::{
     mdbx::*,
     tables::{self, CallTraceSetEntry},
-}, models::*, stagedsync::{format_duration, stage::*, stages::EXECUTION, util::*}, upsert_storage_value, Buffer, HeaderReader};
+}, models::*, stagedsync::{format_duration, stage::*, stages::EXECUTION, util::*}, upsert_storage_value, Buffer};
 use anyhow::format_err;
 use async_trait::async_trait;
 use std::time::{Duration, Instant};
