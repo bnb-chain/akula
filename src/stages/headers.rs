@@ -10,7 +10,6 @@ use dashmap::DashMap;
 use ethereum_types::H512;
 use parking_lot::Mutex;
 use rand::prelude::*;
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::{
     collections::BTreeMap,
     sync::{
@@ -651,31 +650,20 @@ impl HeaderDownload {
     fn verify_seal<'tx, 'db, E: EnvironmentKind>(&self, mut engine: Box<dyn Consensus>, txn: &'tx mut MdbxTransaction<'db, RW, E>,
                                                  headers: &mut Vec<(H256, BlockHeader)>) -> anyhow::Result<()> {
         let valid_till = AtomicUsize::new(0);
-
         let mut cursor_header = txn.cursor(tables::Header)?;
-        if let Some(p) = engine.parlia() {
-            for (i, _) in headers.iter().enumerate() {
-                let header = &headers[i].1;
-                p.snapshot(txn, BlockNumber(header.number.0-1), header.parent_hash)?;
-                if i > 0 {
-                    p.validate_block_header(&header, &headers[i-1].1, false)?;
-                } else {
-                    let parent = txn.read_parent_header(&header)?
-                        .ok_or_else(|| format_err!("no parent header"))?;
-                    p.validate_block_header(&header, &parent, false)?;
-                }
-                cursor_header.put((header.number, headers[i].0), header.clone())?;
-            }
-            return Ok(());
-        }
 
-        headers.par_iter().enumerate().skip(1).for_each(|(i, _)| {
+        for (i, _) in headers.iter().enumerate() {
             let header = &headers[i].1;
-            if self
-                .consensus
-                .validate_block_header(header, &headers[i - 1].1, false)
-                .is_err()
-            {
+            engine.snapshot(txn, BlockNumber(header.number.0-1), header.parent_hash)?;
+            let res = if i > 0 {
+                engine.validate_block_header(&header, &headers[i - 1].1, false)
+            } else {
+                let parent = txn.read_parent_header(&header)?
+                    .ok_or_else(|| format_err!("no parent header"))?;
+                engine.validate_block_header(&header, &parent, false)
+            };
+
+            if res.is_err() {
                 let mut value = valid_till.load(Ordering::SeqCst);
                 while i < value {
                     if valid_till.compare_exchange(value, i, Ordering::SeqCst, Ordering::SeqCst)
@@ -686,15 +674,14 @@ impl HeaderDownload {
                         value = valid_till.load(Ordering::SeqCst);
                     }
                 }
+                break;
             }
-        });
+            cursor_header.put((header.number, headers[i].0), header.clone())?;
+        };
 
         let valid_till = valid_till.load(Ordering::SeqCst);
         if valid_till != 0 {
             headers.truncate(valid_till);
-        }
-        for (h, header) in headers.iter() {
-            cursor_header.put((header.number, *h), header.clone())?;
         }
 
         Ok(())

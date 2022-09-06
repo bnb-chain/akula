@@ -387,7 +387,7 @@ where
             self.header,
             &self.block.ommers,
             Some(&self.block.transactions),
-            ConsensusFinalizeState::handle(self.engine, &mut self.state)?,
+            &self.state,
         )? {
             match change {
                 FinalizationChange::Reward {

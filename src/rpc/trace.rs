@@ -32,7 +32,6 @@ use std::{
 use tokio_stream::{Stream, StreamExt};
 use tonic::Response;
 use tracing::*;
-use crate::consensus::ConsensusFinalizeState;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StateUpdate {
@@ -399,7 +398,7 @@ where
 
     let mut rewards = vec![];
     if let Some(ommers) = finalization {
-        for change in engine_factory(None, chain_spec, None)?.finalize(&header, &ommers, None, ConsensusFinalizeState::Stateless)? {
+        for change in engine_factory(None, chain_spec, None)?.finalize(&header, &ommers, None, &buffer)? {
             match change {
                 crate::consensus::FinalizationChange::Reward {
                     address,

@@ -221,7 +221,7 @@ impl Consensus for BeaconConsensus {
         header: &crate::models::BlockHeader,
         ommers: &[crate::models::BlockHeader],
         _transactions: Option<&Vec<MessageWithSender>>,
-        _state: ConsensusFinalizeState,
+        _state: &dyn StateReader,
     ) -> anyhow::Result<Vec<super::FinalizationChange>> {
         let block_number = header.number;
         let block_reward = self.block_reward.for_block(block_number);
@@ -253,7 +253,4 @@ impl Consensus for BeaconConsensus {
         })
     }
 
-    fn parlia(&mut self) -> Option<&mut Parlia> {
-        None
-    }
 }

@@ -20,7 +20,8 @@ mod snapshot;
 mod contract_upgrade;
 pub mod util;
 mod state;
-pub use state::{ParliaFinalizeState, ParliaNewBlockState};
+pub use state::{ParliaNewBlockState};
+pub use snapshot::{SnapRW};
 
 use super::*;
 use crate::{
@@ -35,7 +36,7 @@ use std::str;
 use crate::{
     consensus::{
         parlia::{
-            snapshot::{Snapshot, SnapRW},
+            snapshot::{Snapshot},
             util::{is_system_transaction, recover_creator},
         },
         DuoError::Validation,
@@ -145,11 +146,12 @@ impl Consensus for Parlia {
         header: &BlockHeader,
         _ommers: &[BlockHeader],
         transactions: Option<&Vec<MessageWithSender>>,
-        state: ConsensusFinalizeState,
+        state: &dyn StateReader,
     ) -> anyhow::Result<Vec<FinalizationChange>> {
 
         // check epoch validators chg correctly
         if self.new_block_state.parsed_validators() && header.number % self.epoch == 0 {
+            info!("validate validators {}", header.number);
             let suppose_vals = self.new_block_state.get_validators()
                 .ok_or_else(|| Validation(CacheValidatorsUnknown))?;
 
@@ -167,6 +169,7 @@ impl Consensus for Parlia {
         // if set transactions, check systemTxs and reward if correct
         // must set transactions in sync
         if let Some(transactions) = transactions {
+            info!("validate system transactions {} len {}", header.number, transactions.len());
             let mut expect_system_txs: Vec<Message> = Vec::new();
             let mut actual_system_txs: Vec<&MessageWithSender> = Vec::new();
             let mut have_sys_reward = false;
@@ -209,14 +212,19 @@ impl Consensus for Parlia {
                     expect_system_txs.push(slash_tx);
                 }
             }
-            let (mut reward, sys_hold) = match state {
-                ConsensusFinalizeState::Stateless => {
-                    return Err(Validation(WrongConsensusParam).into());
-                },
-                ConsensusFinalizeState::Parlia(state) => {
-                    (state.get_system_account_balance(), state.get_system_reward_contract_balance())
-                },
-            };
+            // let reward = state.get_balance(*util::SYSTEM_ACCOUNT)?;
+            // let sys_hold = state.get_balance(*util::SYSTEM_REWARD_CONTRACT)?;
+            let mut reward = state.read_account(*util::SYSTEM_ACCOUNT)?
+                .ok_or_else(|| Validation(UnknownAccount{
+                    block: header.number,
+                    account: *util::SYSTEM_ACCOUNT
+                }))?.balance;
+            let sys_hold = state.read_account(*util::SYSTEM_REWARD_CONTRACT)?
+                .ok_or_else(|| Validation(UnknownAccount{
+                    block: header.number,
+                    account: *util::SYSTEM_REWARD_CONTRACT
+                }))?.balance;
+
             if reward > U256::ZERO {
                 let sys_reward = reward >> SYSTEM_REWARD_PERCENT;
                 if sys_reward > U256::ZERO {
@@ -239,6 +247,7 @@ impl Consensus for Parlia {
                         };
                         expect_system_txs.push(sys_reward_tx);
                         reward -= sys_reward;
+                        info!("validate system transactions, block {} reward {} {}", header.number, reward, sys_reward);
                     }
                 }
                 let validator_dis_data =
@@ -397,42 +406,21 @@ impl Consensus for Parlia {
         Err(Validation(WrongConsensusParam).into())
     }
 
-    fn parlia(&mut self) -> Option<&mut Parlia> {
-        Some(self)
-    }
-}
-
-impl Parlia {
-
-    fn query_snap(
-        &self,
-        block_number: u64,
-        block_hash: H256,
-    ) -> Result<Snapshot, DuoError> {
-        let mut snap_by_hash = self.recent_snaps.write();
-        if let Some(new_snap) = snap_by_hash.get_mut(&block_hash) {
-            return Ok(new_snap.clone());
-        }
-        return Err(Validation(ValidationError::SnapNotFound {
-            number: BlockNumber(block_number),
-            hash: block_hash,
-        }));
-    }
-
-    /// snapshot retrieves the authorization snapshot at a given point in time.
-    pub fn snapshot(
+    fn snapshot(
         &mut self,
         db: &dyn SnapRW,
-        mut block_number: BlockNumber,
-        mut block_hash: H256,
-    ) -> anyhow::Result<Snapshot, DuoError> {
-        debug!("snapshot header {}", block_number);
+        block_number: BlockNumber,
+        block_hash: H256,
+    ) -> anyhow::Result<(), DuoError> {
+        info!("snapshot header {}", block_number);
+        let mut block_number = block_number;
+        let mut block_hash = block_hash;
         let mut snap_by_hash = self.recent_snaps.write();
         let mut headers = Vec::new();
         let mut snap: Snapshot;
 
         loop {
-            debug!("snap loop header {} {:?}", block_number, block_hash);
+            info!("snap loop header {} {:?}", block_number, block_hash);
             if let Some(new_snap) = snap_by_hash.get_mut(&block_hash) {
                 snap = new_snap.clone();
                 break;
@@ -440,7 +428,7 @@ impl Parlia {
             if block_number % CHECKPOINT_INTERVAL == 0 {
                 if let Some(new_snap) = db.read_snap(block_hash)? {
                     snap = new_snap;
-                    debug!("snap find from db {} {:?}", block_number, block_hash);
+                    info!("snap find from db {} {:?}", block_number, block_hash);
                     break;
                 }
             }
@@ -479,7 +467,25 @@ impl Parlia {
         if snap.number % CHECKPOINT_INTERVAL == 0 {
             db.write_snap(&snap)?;
         }
-        return Ok(snap);
+        return Ok(());
+    }
+}
+
+impl Parlia {
+
+    fn query_snap(
+        &self,
+        block_number: u64,
+        block_hash: H256,
+    ) -> Result<Snapshot, DuoError> {
+        let mut snap_by_hash = self.recent_snaps.write();
+        if let Some(new_snap) = snap_by_hash.get_mut(&block_hash) {
+            return Ok(new_snap.clone());
+        }
+        return Err(Validation(ValidationError::SnapNotFound {
+            number: BlockNumber(block_number),
+            hash: block_hash,
+        }));
     }
 
     fn verify_block_time_for_ramanujan_fork(
@@ -530,17 +536,6 @@ pub fn parse_parlia_new_block_state<'r, S>(
         return Ok(ParliaNewBlockState::new(Some(query_validators(chain_spec, &parent_header, state)?)));
     }
     Ok(ParliaNewBlockState::new(None))
-}
-
-pub fn parse_parlia_finalize_state<S>(
-    state: &mut IntraBlockState<S>,
-) -> anyhow::Result<ParliaFinalizeState>
-    where
-        S: StateReader + HeaderReader,
-{
-    let system_account_balance = state.get_balance(*util::SYSTEM_ACCOUNT)?;
-    let system_reward_contract_balance = state.get_balance(*util::SYSTEM_REWARD_CONTRACT)?;
-    Ok(ParliaFinalizeState::new(system_account_balance, system_reward_contract_balance))
 }
 
 /// query_validators query validators from VALIDATOR_CONTRACT

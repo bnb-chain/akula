@@ -195,7 +195,7 @@ impl Consensus for Ethash {
         header: &BlockHeader,
         ommers: &[BlockHeader],
         _transactions: Option<&Vec<MessageWithSender>>,
-        _state: ConsensusFinalizeState,
+        _state: &dyn StateReader,
     ) -> anyhow::Result<Vec<FinalizationChange>> {
         let block_number = header.number;
         let block_reward = self.block_reward.for_block(block_number);
@@ -226,7 +226,4 @@ impl Consensus for Ethash {
         })
     }
 
-    fn parlia(&mut self) -> Option<&mut Parlia> {
-        None
-    }
 }

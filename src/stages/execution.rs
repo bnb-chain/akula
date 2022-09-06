@@ -10,6 +10,7 @@ use anyhow::format_err;
 use async_trait::async_trait;
 use std::time::{Duration, Instant};
 use tracing::*;
+use crate::consensus::is_parlia;
 
 /// Execution of blocks through EVM
 #[derive(Debug)]
@@ -70,10 +71,8 @@ fn execute_batch_of_blocks<E: EnvironmentKind>(
             consensus_engine.set_state(ConsensusState::recover(tx, &chain_config, block_number)?);
         }
 
-        if let Some(p) = consensus_engine.parlia() {
-            if header.difficulty != DIFF_INTURN {
-                p.snapshot(tx, BlockNumber(header.number.0-1), header.parent_hash)?;
-            }
+        if is_parlia(consensus_engine.name()) && header.difficulty != DIFF_INTURN {
+            consensus_engine.snapshot(tx, BlockNumber(header.number.0-1), header.parent_hash)?;
         }
 
         let mut call_tracer = CallTracer::default();

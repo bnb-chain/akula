@@ -98,30 +98,6 @@ impl ConsensusNewBlockState {
     }
 }
 
-pub enum ConsensusFinalizeState {
-    Stateless,
-    Parlia(ParliaFinalizeState),
-}
-
-impl ConsensusFinalizeState {
-    pub(crate) fn handle<S>(
-        engine: &dyn Consensus,
-        state: &mut IntraBlockState<S>,
-    ) -> anyhow::Result<ConsensusFinalizeState>
-        where
-            S: StateReader + HeaderReader,
-    {
-        Ok(match engine.name() {
-            PARLIA_CONSENSUS => {
-                ConsensusFinalizeState::Parlia(parse_parlia_finalize_state(state)?)
-            },
-            _ => {
-                ConsensusFinalizeState::Stateless
-            },
-        })
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ExternalForkChoice {
     pub head_block: H256,
@@ -163,7 +139,7 @@ pub trait Consensus: Debug + Send + Sync + 'static {
         header: &BlockHeader,
         ommers: &[BlockHeader],
         transactions: Option<&Vec<MessageWithSender>>,
-        state: ConsensusFinalizeState,
+        state: &dyn StateReader,
     ) -> anyhow::Result<Vec<FinalizationChange>>;
 
     /// See YP Section 11.3 "Reward Application".
@@ -193,7 +169,14 @@ pub trait Consensus: Debug + Send + Sync + 'static {
         true
     }
 
-    fn parlia(&mut self) -> Option<&mut Parlia>;
+    fn snapshot(
+        &mut self,
+        _db: &dyn SnapRW,
+        _block_number: BlockNumber,
+        _block_hash: H256,
+    ) -> anyhow::Result<(), DuoError> {
+        Ok(())
+    }
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -399,6 +382,10 @@ pub enum ValidationError {
     },
     CacheValidatorsUnknown,
     WrongConsensusParam,
+    UnknownAccount {
+        block: BlockNumber,
+        account: Address,
+    },
 }
 
 impl From<CliqueError> for ValidationError {

@@ -39,30 +39,3 @@ impl ParliaNewBlockState {
         self.next_validators.is_some()
     }
 }
-
-#[derive(Debug)]
-pub struct ParliaFinalizeState {
-    system_account_balance: U256,
-    system_reward_contract_balance: U256,
-}
-
-impl ParliaFinalizeState {
-
-    pub fn new(
-        system_account_balance: U256,
-        system_reward_contract_balance: U256,
-    ) -> ParliaFinalizeState {
-        ParliaFinalizeState {
-            system_account_balance,
-            system_reward_contract_balance
-        }
-    }
-
-    pub fn get_system_account_balance(&self) -> U256 {
-        self.system_account_balance
-    }
-
-    pub fn get_system_reward_contract_balance(&self) -> U256 {
-        self.system_reward_contract_balance
-    }
-}
