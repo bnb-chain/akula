@@ -50,24 +50,6 @@ impl Snapshot {
         }
     }
 
-    pub fn load<E: EnvironmentKind>(txn: &MdbxTransaction<'_, RW, E>, hash: H256) -> anyhow::Result<Option<Snapshot>> {
-        let snap_op = txn.get(tables::ColParliaSnapshot, hash)?;
-        Ok(match snap_op {
-            None => {
-                None
-            }
-            Some(val) => {
-                Some(serde_json::from_slice(&val)?)
-            }
-        })
-    }
-
-    pub fn store<E: EnvironmentKind>(&self, txn: &MdbxTransaction<'_, RW, E>) -> anyhow::Result<()> {
-        debug!("snap store {}, {}", self.number, self.hash);
-        let value = serde_json::to_vec(&self)?;
-        txn.set(tables::ColParliaSnapshot, self.hash, value)
-    }
-
     pub fn clone(&self) -> Snapshot {
         Snapshot {
             validators: self.validators.clone(),
@@ -76,12 +58,12 @@ impl Snapshot {
         }
     }
 
-    pub fn apply<E>(
+    pub fn apply(
         &mut self,
-        txn: &MdbxTransaction<'_, RW, E>,
+        db: &dyn SnapRW,
         header: &BlockHeader,
         chain_id: ChainId,
-    ) -> Result<Snapshot, DuoError> where E: EnvironmentKind{
+    ) -> Result<Snapshot, DuoError> {
         let num = header.number.into();
         if self.number + 1 != num {
             return Err(ValidationError::SnapFutureBlock{
@@ -113,7 +95,7 @@ impl Snapshot {
         snap.recents.insert(num, creator);
         if num > 0 && num % snap.epoch == (snap.validators.len() / 2) as u64 {
             let checkpoint_header =
-                find_ancient_header(txn, header, (snap.validators.len() / 2) as u64)?;
+                find_ancient_header(db, header, (snap.validators.len() / 2) as u64)?;
             let extra = checkpoint_header.extra_data;
             let validator_bytes = &extra[VANITY_LENGTH..(extra.len() - SIGNATURE_LENGTH)];
             let new_validators = parse_validators(validator_bytes)?;
@@ -147,11 +129,6 @@ impl Snapshot {
         return *res;
     }
 
-    pub fn back_off_time(&self, _: &ethereum_types::Address) -> u64 {
-        // TODO, so far so good.
-        return 0;
-    }
-
     /// index_of find validator index in list
     pub fn index_of(&self, validator: &Address) -> i32 {
         let mut index= 0;
@@ -165,16 +142,46 @@ impl Snapshot {
     }
 }
 
-fn find_ancient_header<E>(
-    txn: &MdbxTransaction<'_, RW, E>,
+/// to handle snap from db
+pub trait SnapRW: HeaderReader {
+
+    /// read snap from db
+    fn read_snap(&self, block_hash: H256) -> anyhow::Result<Option<Snapshot>>;
+
+    /// write snap into db
+    fn write_snap(&self, snap: &Snapshot) -> anyhow::Result<()>;
+}
+
+impl<E: EnvironmentKind> SnapRW for MdbxTransaction<'_, RW, E> {
+    fn read_snap(&self, block_hash: H256) -> anyhow::Result<Option<Snapshot>> {
+        let snap_op = self.get(tables::ColParliaSnapshot, block_hash)?;
+        Ok(match snap_op {
+            None => {
+                None
+            }
+            Some(val) => {
+                Some(serde_json::from_slice(&val)?)
+            }
+        })
+    }
+
+    fn write_snap(&self, snap: &Snapshot) -> anyhow::Result<()> {
+        debug!("snap store {}, {}", snap.number, snap.hash);
+        let value = serde_json::to_vec(snap)?;
+        self.set(tables::ColParliaSnapshot, snap.hash, value)
+    }
+}
+
+fn find_ancient_header(
+    db: &dyn SnapRW,
     header: &BlockHeader,
     ite: u64,
-) -> Result<BlockHeader, DuoError> where E: EnvironmentKind {
+) -> Result<BlockHeader, DuoError> {
     let cur_header_op = Some(header.clone());
     let mut cur_header = cur_header_op.unwrap();
 
     for _ in 0..ite {
-        let cur_header_op = txn.read_header(BlockNumber(cur_header.number.0 - 1), cur_header.parent_hash)?;
+        let cur_header_op = db.read_header(BlockNumber(cur_header.number.0 - 1), cur_header.parent_hash)?;
         if cur_header_op.is_none() {
             return Err(ValidationError::UnknownHeader{
                 number: BlockNumber(header.number.0 - 1),

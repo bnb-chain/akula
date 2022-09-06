@@ -35,14 +35,13 @@ use std::str;
 use crate::{
     consensus::{
         parlia::{
-            snapshot::Snapshot,
+            snapshot::{Snapshot, SnapRW},
             util::{is_system_transaction, recover_creator},
         },
         DuoError::Validation,
         ValidationError::*,
     },
     crypto::go_rng::{RngSource, Shuffle},
-    kv::{mdbx::*},
     models::*, HeaderReader,
 };
 use bytes::{Buf, Bytes};
@@ -421,15 +420,12 @@ impl Parlia {
     }
 
     /// snapshot retrieves the authorization snapshot at a given point in time.
-    pub fn snapshot<E>(
+    pub fn snapshot(
         &mut self,
-        txn: &MdbxTransaction<'_, RW, E>,
+        db: &dyn SnapRW,
         mut block_number: BlockNumber,
         mut block_hash: H256,
-    ) -> anyhow::Result<Snapshot, DuoError>
-    where
-        E: EnvironmentKind,
-    {
+    ) -> anyhow::Result<Snapshot, DuoError> {
         debug!("snapshot header {}", block_number);
         let mut snap_by_hash = self.recent_snaps.write();
         let mut headers = Vec::new();
@@ -442,14 +438,14 @@ impl Parlia {
                 break;
             }
             if block_number % CHECKPOINT_INTERVAL == 0 {
-                if let Some(new_snap) = Snapshot::load(txn, block_hash)? {
+                if let Some(new_snap) = db.read_snap(block_hash)? {
                     snap = new_snap;
                     debug!("snap find from db {} {:?}", block_number, block_hash);
                     break;
                 }
             }
             if block_number == 0 {
-                let header = txn.read_header(block_number, block_hash)?;
+                let header = db.read_header(block_number, block_hash)?;
                 if header.is_none() {
                     return Err(Validation(ValidationError::UnknownHeader {
                         number: block_number,
@@ -463,7 +459,7 @@ impl Parlia {
                 snap = Snapshot::new(validators, block_number.0, block_hash, self.epoch);
                 break;
             }
-            if let Some(header) = txn.read_header(block_number, block_hash)? {
+            if let Some(header) = db.read_header(block_number, block_hash)? {
                 block_hash = header.parent_hash;
                 block_number = BlockNumber(header.number.0 - 1);
                 headers.push(header);
@@ -475,13 +471,13 @@ impl Parlia {
             }
         }
         for h in headers.iter().rev() {
-            snap = snap.apply(txn, h, self.chain_id)?;
+            snap = snap.apply(db, h, self.chain_id)?;
         }
 
         debug!("snap insert {} {:?}", snap.number, snap.hash);
         snap_by_hash.insert(snap.hash, snap.clone());
         if snap.number % CHECKPOINT_INTERVAL == 0 {
-            snap.store(txn)?;
+            db.write_snap(&snap)?;
         }
         return Ok(snap);
     }
