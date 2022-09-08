@@ -13,11 +13,9 @@ use crate::{
     HeaderReader, State, StateReader,
 };
 use bytes::Bytes;
-use std::{
-    cmp::min,
-};
+use std::cmp::min;
+use tracing::info;
 use TransactionAction;
-use tracing::*;
 
 pub struct ExecutionProcessor<'r, 'tracer, 'analysis, 'e, 'h, 'b, 'c, S>
 where
@@ -58,7 +56,7 @@ where
     let max_refund = (message.gas_limit() - gas_left) / max_refund_quotient;
     refund = min(refund, max_refund);
 
-    if parlia_engine && util::is_system_transaction(message, &sender, &header.beneficiary){
+    if parlia_engine && is_system_transaction(message, &sender, &header.beneficiary){
         refund = 0;
     }
 
@@ -94,16 +92,16 @@ where
 
     state.access_account(sender);
 
-    let base_fee_per_gas = if parlia_engine && util::is_system_transaction(message, &sender, &beneficiary){
+    let base_fee_per_gas = if parlia_engine && is_system_transaction(message, &sender, &beneficiary){
         U256::ZERO
     } else{
         header.base_fee_per_gas.unwrap_or(U256::ZERO)
     };
     
-    if parlia_engine && util::is_system_transaction(message, &sender, &beneficiary) {
-        let system_balance = state.get_balance(*util::SYSTEM_ACCOUNT)?;
+    if parlia_engine && is_system_transaction(message, &sender, &beneficiary) {
+        let system_balance = state.get_balance(*SYSTEM_ACCOUNT)?;
         if system_balance != 0 {
-            state.subtract_from_balance(*util::SYSTEM_ACCOUNT, system_balance)?;
+            state.subtract_from_balance(*SYSTEM_ACCOUNT, system_balance)?;
             state.add_to_balance(header.beneficiary, system_balance)?;
         }
     }
@@ -135,7 +133,7 @@ where
         rev >= Revision::Istanbul,
     );
 
-    if parlia_engine && util::is_system_transaction(message, &sender, &beneficiary) {
+    if parlia_engine && is_system_transaction(message, &sender, &beneficiary) {
         g0 = 0 as u128;
     }
     let gas = u128::from(message.gas_limit())
@@ -176,7 +174,7 @@ where
     let rewards = U256::from(gas_used) * priority_fee_per_gas;
     if rewards > 0 {
         if parlia_engine {
-            state.add_to_balance(*util::SYSTEM_ACCOUNT, rewards)?;
+            state.add_to_balance(*SYSTEM_ACCOUNT, rewards)?;
         }else{
             state.add_to_balance(beneficiary, rewards)?;
         }
@@ -188,6 +186,7 @@ where
     }
 
     state.finalize_transaction();
+
     *cumulative_gas_used += gas_used;
 
     Ok((
@@ -293,7 +292,7 @@ where
             ));
 
         // if not parlia or not system_transaction in parlia, check gas
-        if !is_parlia(self.engine.name()) || !util::is_system_transaction(message, &sender, &self.header.beneficiary) {
+        if !is_parlia(self.engine.name()) || !is_system_transaction(message, &sender, &self.header.beneficiary) {
             // See YP, Eq (57) in Section 6.2 "Execution"
             let v0 =
                 max_gas_cost + U512::from(ethereum_types::U256::from(message.value().to_be_bytes()));
@@ -330,7 +329,6 @@ where
         message: &Message,
         sender: Address,
     ) -> Result<Receipt, DuoError> {
-        debug!("execute_transaction {:?} {:?}", message.hash(), sender);
         let beneficiary = self.engine.get_beneficiary(self.header);
 
         let parlia = is_parlia(self.engine.name());
@@ -354,8 +352,8 @@ where
         &mut self,
         mut pred: impl FnMut(usize, &MessageWithSender) -> bool,
     ) -> Result<Vec<Receipt>, DuoError> {
-
         let mut receipts = Vec::with_capacity(self.block.transactions.len());
+
         for (&address, &balance) in &self.block_spec.balance_changes {
             self.state.set_balance(address, balance)?;
         }
@@ -368,7 +366,7 @@ where
                 return Ok(receipts);
             }
 
-            if parlia && util::is_system_transaction(&txn.message, &txn.sender, &self.header.beneficiary) {
+            if parlia && is_system_transaction(&txn.message, &txn.sender, &self.header.beneficiary) {
                 system_txs.push(txn);
                 continue;
             }
@@ -430,6 +428,7 @@ where
         let gas_used = receipts.last().map(|r| r.cumulative_gas_used).unwrap_or(0);
 
         if gas_used != self.header.gas_used {
+            info!("wron gas block {}, {:?}", self.header.number, receipts);
             let transactions = receipts
                 .into_iter()
                 .enumerate()

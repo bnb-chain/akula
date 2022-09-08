@@ -252,5 +252,4 @@ impl Consensus for BeaconConsensus {
             vec![]
         })
     }
-
 }

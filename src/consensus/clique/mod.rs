@@ -1,16 +1,19 @@
 pub mod state;
 pub use state::CliqueState;
 
-use crate::{consensus::{
-    fork_choice_graph::ForkChoiceGraph, state::CliqueBlock, CliqueError, Consensus,
-    ConsensusEngineBase, ConsensusState, DuoError, FinalizationChange, ForkChoiceMode,
-    ValidationError,
-}, kv::{
-    mdbx::{MdbxCursor, MdbxTransaction},
-    tables,
-}, models::{
-    Block, BlockHeader, BlockNumber, ChainConfig, ChainId, ChainSpec, Seal
-}, BlockReader, StateReader};
+use crate::{
+    consensus::{
+        fork_choice_graph::ForkChoiceGraph, state::CliqueBlock, CliqueError, Consensus,
+        ConsensusEngineBase, ConsensusState, DuoError, FinalizationChange, ForkChoiceMode,
+        ValidationError,
+    },
+    kv::{
+        mdbx::{MdbxCursor, MdbxTransaction},
+        tables,
+    },
+    models::{Block, BlockHeader, BlockNumber, ChainConfig, ChainId, ChainSpec, Seal, MessageWithSender},
+    BlockReader,StateReader
+};
 use anyhow::bail;
 use bytes::Bytes;
 use ethereum_types::Address;
@@ -22,7 +25,6 @@ use secp256k1::{
 };
 use sha3::{Digest, Keccak256};
 use std::{sync::Arc, time::Duration, unreachable};
-use crate::models::MessageWithSender;
 
 const EXTRA_VANITY: usize = 32;
 const EXTRA_SEAL: usize = 65;
@@ -73,7 +75,7 @@ fn get_header<K: TransactionKind>(
 ) -> anyhow::Result<BlockHeader> {
     Ok(match cursor.seek(height)? {
         Some(((found_height, _), header)) if found_height == height => header,
-        _ => bail!("Header for block {} missing from database.", height.0),
+        _ => bail!("Header for block {} missing from database.", height),
     })
 }
 
@@ -255,5 +257,4 @@ impl Consensus for Clique {
     fn fork_choice_mode(&self) -> ForkChoiceMode {
         ForkChoiceMode::Difficulty(self.fork_choice_graph.clone())
     }
-
 }

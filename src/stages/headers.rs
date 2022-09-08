@@ -1,9 +1,17 @@
 #![allow(unreachable_code)]
 
-use crate::{consensus::{fork_choice_graph::ForkChoiceGraph, Consensus, DuoError, ForkChoiceMode}, HeaderReader, kv::{mdbx::*, tables}, models::{BlockHeader, BlockNumber, H256}, p2p::{
-    node::{Node, NodeStream},
-    types::{BlockHeaders, BlockId, HeaderRequest, Message, Status},
-}, stagedsync::{stage::*, stages::HEADERS}, TaskGuard};
+use crate::{
+    consensus::{engine_factory, fork_choice_graph::ForkChoiceGraph, Consensus, DuoError, ForkChoiceMode},
+    kv::{mdbx::*, tables},
+    models::{BlockHeader, BlockNumber, H256},
+    p2p::{
+        node::{Node, NodeStream},
+        types::{BlockHeaders, BlockId, HeaderRequest, Message, Status},
+    },
+    stagedsync::{stage::*, stages::HEADERS},
+    TaskGuard,
+    HeaderReader,
+};
 use anyhow::format_err;
 use async_trait::async_trait;
 use dashmap::DashMap;
@@ -21,7 +29,6 @@ use std::{
 use tokio::time::Instant;
 use tokio_stream::StreamExt;
 use tracing::*;
-use crate::consensus::{engine_factory};
 
 const HEADERS_UPPER_BOUND: usize = 1 << 10;
 

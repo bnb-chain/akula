@@ -28,6 +28,7 @@ use ethereum_jsonrpc::{
 use jsonrpsee::core::RpcResult;
 use std::{cmp::Ordering, sync::Arc};
 use tokio::pin;
+use crate::consensus::is_parlia;
 
 pub struct OtterscanApiServerImpl<SE>
 where
@@ -176,15 +177,11 @@ where
         last_page: false,
     };
 
-    let beneficiary = engine_factory(None, chain_spec.clone(), None)?.get_beneficiary(&header);
-    let mut parlia = false;
-    if let SealVerificationParams::Parlia { .. } = chain_spec.consensus.seal_verification {
-            parlia = true;
-    }
+    let engine = engine_factory(None, chain_spec.clone(), None)?;
+    let beneficiary = engine.get_beneficiary(&header);
     for (transaction_index, (transaction, sender)) in messages.into_iter().zip(senders).enumerate()
     {
         let mut tracer = TouchTracer::new(addr);
-
         let receipt = execute_transaction(
             &mut state,
             &block_spec,
@@ -195,7 +192,7 @@ where
             &transaction.message,
             sender,
             beneficiary,
-            parlia,
+            is_parlia(engine.name()),
         )?
         .1;
 

@@ -225,5 +225,4 @@ impl Consensus for Ethash {
             vec![]
         })
     }
-
 }

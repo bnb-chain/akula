@@ -1,21 +1,3 @@
-// Copyright 2015-2020 Parity Technologies (UK) Ltd.
-// This file is part of OpenEthereum.
-
-// OpenEthereum is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-
-// OpenEthereum is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-
-// You should have received a copy of the GNU General Public License
-// along with OpenEthereum.  If not, see <http://www.gnu.org/licenses/>.
-
-//! Utils implement
-
 use crate::consensus::parlia::*;
 use ethereum_types::H256;
 use lazy_static::lazy_static;
@@ -27,17 +9,19 @@ use ethereum_types::Address;
 use crate::crypto;
 use sha3::{Digest, Keccak256};
 use ethereum::*;
-/// How many recovered signature to cache in the memory.
-const CREATOR_CACHE_NUM: usize = 4096;
 use secp256k1::{
     ecdsa::{RecoverableSignature, RecoveryId},
     Message as SecpMessage, SECP256K1,
 };
 
+/// How many cache with recovered signatures.
+const RECOVERED_CREATOR_CACHE_NUM: usize = 4096;
+
 lazy_static! {
-    /// key: header hash
-    /// value: creator address
-    static ref CREATOR_BY_HASH: RwLock<LruCache<H256, Address>> = RwLock::new(LruCache::new(CREATOR_CACHE_NUM));
+
+    /// recovered creator cache map by block_number: creator_address
+    static ref RECOVERED_CREATOR_CACHE: RwLock<LruCache<H256, Address>> = RwLock::new(LruCache::new(RECOVERED_CREATOR_CACHE_NUM));
+    pub static ref MAX_GAS_LIMIT_CAP: ethnum::U256 = ethnum::U256::from(0x7fffffffffffffff_u64);
 
     pub static ref SYSTEM_ACCOUNT: Address = Address::from_str("ffffFFFfFFffffffffffffffFfFFFfffFFFfFFfE").unwrap();
     pub static ref VALIDATOR_CONTRACT: Address =  Address::from_str("0000000000000000000000000000000000001000").unwrap();
@@ -59,6 +43,7 @@ lazy_static! {
     .map(|x| Address::from_str(x).unwrap())
     .collect();
 }
+
 pub struct Signature([u8; 65]);
 
 pub fn public_to_address(public: &Public) -> Address {
@@ -67,35 +52,51 @@ pub fn public_to_address(public: &Public) -> Address {
 }
 
 /// whether the contract is system or not
-pub fn is_to_system_contract(addr: &Address) -> bool {
+pub fn is_invoke_system_contract(addr: &Address) -> bool {
     SYSTEM_CONTRACTS.contains(addr)
 }
 
 /// whether the transaction is system or not
 pub fn is_system_transaction(tx: &Message, sender: &Address, author: &Address) -> bool {
     if let TransactionAction::Call(to) = tx.action() {
-        sender.eq(&author) && is_to_system_contract(&to) && tx.max_fee_per_gas() == 0
+        *sender == *author && is_invoke_system_contract(&to) && tx.max_fee_per_gas() == 0
     } else {
         false
     }
 }
 
-/// Recover block creator from signature
+/// parse_validators from bytes
+pub fn parse_epoch_validators(bytes: &[u8]) -> Result<Vec<Address>, DuoError> {
+    if bytes.len() % ADDRESS_LENGTH != 0 {
+        return Err(ParliaError::WrongHeaderExtraSignersLen {
+            expected: 0,
+            got: bytes.len() % ADDRESS_LENGTH
+        }.into());
+    }
+    let n = bytes.len() / ADDRESS_LENGTH;
+    let mut res = BTreeSet::new();
+    for i in 0..n {
+        let address = Address::from_slice(&bytes[(i * ADDRESS_LENGTH)..((i + 1) * ADDRESS_LENGTH)]);
+        res.insert(address);
+    }
+    Ok(res.into_iter().collect())
+}
+
+/// Recover parlia block creator from signature
 pub fn recover_creator(header: &BlockHeader, chain_id: ChainId) -> Result<Address, DuoError> {
     // Initialization
-    let mut cache = CREATOR_BY_HASH.write();
-
+    let mut cache = RECOVERED_CREATOR_CACHE.write();
     if let Some(creator) = cache.get_mut(&header.hash()) {
         return Ok(*creator);
     }
 
-    let data = &header.extra_data;
+    let extra_data = &header.extra_data;
 
-    if data.len() < VANITY_LENGTH + SIGNATURE_LENGTH {
-        return Err(Validation(ValidationError::WrongHeaderExtraLen {
+    if extra_data.len() < VANITY_LENGTH + SIGNATURE_LENGTH {
+        return Err(ParliaError::WrongHeaderExtraLen {
             expected: VANITY_LENGTH + SIGNATURE_LENGTH,
-            got: data.len()
-        }));
+            got: extra_data.len()
+        }.into());
     }
     let signature_offset = header.extra_data.len() - SIGNATURE_LENGTH;
 
@@ -113,6 +114,36 @@ pub fn recover_creator(header: &BlockHeader, chain_id: ChainId) -> Result<Addres
     let creator = Address::from_slice(address_slice);
     cache.insert(header.hash(), creator.clone());
     Ok(creator)
+}
+
+/// check tx is similar
+pub fn is_similar_tx(actual: &Message, expect: &Message) -> bool {
+    if actual.max_fee_per_gas() == expect.max_fee_per_gas()
+        && actual.max_fee_per_gas() == expect.max_fee_per_gas()
+        && actual.value() == expect.value()
+        && actual.input() == expect.input()
+        && actual.action() == expect.action() {
+        true
+    } else {
+        false
+    }
+}
+
+/// find header.block_number - count, block header
+pub fn find_ancient_header(
+    db: &dyn SnapRW,
+    header: &BlockHeader,
+    count: u64,
+) -> Result<BlockHeader, DuoError> {
+    let mut result = header.clone();
+    for _ in 0..count {
+        result = db.read_parent_header(&result)?
+            .ok_or_else(|| ParliaError::UnknownHeader{
+                number: BlockNumber(header.number.0 - 1),
+                hash: header.parent_hash,
+            })?;
+    }
+    Ok(result)
 }
 
 #[cfg(test)]

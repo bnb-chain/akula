@@ -7,8 +7,13 @@ mod parlia;
 
 use self::fork_choice_graph::ForkChoiceGraph;
 pub use self::{base::*, beacon::*, blockchain::*, clique::*, ethash::*, parlia::*};
-use crate::{BlockReader, HeaderReader, kv::{mdbx::*, MdbxWithDirHandle}, models::*, state::{IntraBlockState, StateReader}};
-use anyhow::{bail};
+use crate::{
+    kv::{mdbx::*, MdbxWithDirHandle},
+    models::*,
+    BlockReader, HeaderReader,
+    state::{IntraBlockState, StateReader}
+};
+use anyhow::bail;
 use derive_more::{Display, From};
 use mdbx::{EnvironmentKind, TransactionKind};
 use parking_lot::Mutex;
@@ -17,11 +22,8 @@ use std::{
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     sync::Arc,
 };
-use std::collections::BTreeSet;
+use std::time::{SystemTimeError};
 use tokio::sync::watch;
-
-/// Column for parlia block state
-pub const COL_PARLIA_SNAPSHOT: &'static str = "ParliaSnapshot";
 
 #[derive(Debug)]
 pub enum FinalizationChange {
@@ -40,38 +42,19 @@ pub enum ConsensusState {
 impl ConsensusState {
     pub(crate) fn recover<T: TransactionKind, E: EnvironmentKind>(
         tx: &MdbxTransaction<'_, T, E>,
-        chain_spec: &ChainSpec,
+        chainspec: &ChainSpec,
         starting_block: BlockNumber,
     ) -> anyhow::Result<ConsensusState> {
-        Ok(match chain_spec.consensus.seal_verification {
+        Ok(match chainspec.consensus.seal_verification {
             SealVerificationParams::Ethash { .. } => ConsensusState::Stateless,
             SealVerificationParams::Clique { period: _, epoch } => {
-                ConsensusState::Clique(recover_clique_state(tx, chain_spec, epoch, starting_block)?)
-            },
+                ConsensusState::Clique(recover_clique_state(tx, chainspec, epoch, starting_block)?)
+            }
             SealVerificationParams::Beacon { .. } => ConsensusState::Stateless,
             SealVerificationParams::Parlia {..} => ConsensusState::Stateless,
         })
     }
 }
-
-// pub enum ConsensusNewHeaderState {
-//     Stateless,
-//     Parlia(ParliaNewHeaderState),
-// }
-//
-// impl ConsensusNewHeaderState {
-//     pub(crate) fn handle<T: TransactionKind, E: EnvironmentKind>(
-//         tx: &MdbxTransaction<'_, T, E>,
-//         chain_spec: &ChainSpec,
-//     ) -> anyhow::Result<ConsensusNewHeaderState> {
-//         Ok(match chain_spec.consensus.seal_verification {
-//             SealVerificationParams::Ethash { .. } => ConsensusNewHeaderState::Stateless,
-//             SealVerificationParams::Clique { .. } => ConsensusNewHeaderState::Stateless,
-//             SealVerificationParams::Beacon { .. } => ConsensusNewHeaderState::Stateless,
-//             SealVerificationParams::Parlia { .. } => ConsensusNewHeaderState::Stateless,
-//         })
-//     }
-// }
 
 pub enum ConsensusNewBlockState {
     Stateless,
@@ -152,11 +135,10 @@ pub trait Consensus: Debug + Send + Sync + 'static {
     fn set_state(&mut self, state: ConsensusState) {}
 
     /// To be overridden for stateful consensus engines, e. g. PoA engines with a signer list.
-    #[allow(unused_variables)]
     fn new_block(
         &mut self,
-        header: &BlockHeader,
-        state: ConsensusNewBlockState
+        _header: &BlockHeader,
+        _state: ConsensusNewBlockState
     ) -> Result<(), DuoError> {
         Ok(())
     }
@@ -169,6 +151,7 @@ pub trait Consensus: Debug + Send + Sync + 'static {
         true
     }
 
+    /// To be overridden for consensus validators' snap.
     fn snapshot(
         &mut self,
         _db: &dyn SnapRW,
@@ -231,6 +214,80 @@ impl Display for CliqueError {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ParliaError {
+    WrongHeaderTime {
+        now: u64,
+        got: u64,
+    },
+    WrongHeaderExtraLen {
+        expected: usize,
+        got: usize,
+    },
+    WrongHeaderExtraSignersLen {
+        expected: usize,
+        got: usize,
+    },
+    WrongHeaderSigner {
+        number: BlockNumber,
+        expected: Address,
+        got: Address,
+    },
+    UnknownHeader{
+        number: BlockNumber,
+        hash: H256,
+    },
+    SignerUnauthorized{
+        number: BlockNumber,
+        signer: Address,
+    },
+    SignerOverLimit{
+        signer: Address,
+    },
+    EpochChgWrongValidators {
+        expect: Vec<Address>,
+        got: Vec<Address>,
+    },
+    EpochChgCallErr,
+    SnapFutureBlock {
+        expect: BlockNumber,
+        got: BlockNumber,
+    },
+    SnapNotFound {
+        number: BlockNumber,
+        hash: H256,
+    },
+    SystemTxWrongSystemReward {
+        expect: U256,
+        got: U256,
+    },
+    SystemTxWrongCount {
+        expect: usize,
+        got: usize,
+    },
+    SystemTxWrong {
+        expect: Message,
+        got: Message,
+    },
+    CacheValidatorsUnknown,
+    WrongConsensusParam,
+    UnknownAccount {
+        block: BlockNumber,
+        account: Address,
+    },
+}
+impl From<ParliaError> for anyhow::Error {
+    fn from(err: ParliaError) -> Self {
+        DuoError::Validation(ValidationError::ParliaError(err)).into()
+    }
+}
+
+impl Display for ParliaError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ValidationError {
@@ -251,23 +308,6 @@ pub enum ValidationError {
     WrongHeaderNonce {
         expected: H64,
         got: H64,
-    },
-    WrongHeaderTime {
-        now: u64,
-        got: u64,
-    },
-    WrongHeaderExtraLen {
-        expected: usize,
-        got: usize,
-    },
-    WrongHeaderExtraSignersLen {
-        expected: usize,
-        got: usize,
-    },
-    WrongHeaderSigner {
-        number: BlockNumber,
-        expected: Address,
-        got: Address,
     },
     WrongTransactionsRoot {
         expected: H256,
@@ -341,56 +381,18 @@ pub enum ValidationError {
     UnsupportedTransactionType, // EIP-2718
 
     CliqueError(CliqueError),
-    NoneTransactions,
-    NoneReceipts,
-    InvalidDB,
-    UnknownHeader{
-        number: BlockNumber,
-        hash: H256,
-    },
-    SignerUnauthorized{
-        number: BlockNumber,
-        signer: Address,
-    },
-    SignerOverLimit{
-        signer: Address,
-    },
-    EpochChgWrongValidators {
-        expect: BTreeSet<Address>,
-        got: BTreeSet<Address>,
-    },
-    EpochChgCallErr,
-    SnapFutureBlock {
-        expect: BlockNumber,
-        got: BlockNumber,
-    },
-    SnapNotFound {
-        number: BlockNumber,
-        hash: H256,
-    },
-    SystemTxWrongSystemReward {
-        expect: U256,
-        got: U256,
-    },
-    SystemTxWrongCount {
-        expect: usize,
-        got: usize,
-    },
-    SystemTxWrong {
-        expect: Message,
-        got: Message,
-    },
-    CacheValidatorsUnknown,
-    WrongConsensusParam,
-    UnknownAccount {
-        block: BlockNumber,
-        account: Address,
-    },
+    ParliaError(ParliaError),
 }
 
 impl From<CliqueError> for ValidationError {
     fn from(e: CliqueError) -> Self {
         Self::CliqueError(e)
+    }
+}
+
+impl From<ParliaError> for ValidationError {
+    fn from(e: ParliaError) -> Self {
+        Self::ParliaError(e)
     }
 }
 
@@ -415,6 +417,12 @@ impl From<CliqueError> for DuoError {
     }
 }
 
+impl From<ParliaError> for DuoError {
+    fn from(err: ParliaError) -> Self {
+        DuoError::Validation(ValidationError::ParliaError(err))
+    }
+}
+
 impl From<ethabi::Error> for DuoError {
     fn from(err: ethabi::Error) -> Self {
         DuoError::Internal(anyhow::Error::from(err))
@@ -423,6 +431,12 @@ impl From<ethabi::Error> for DuoError {
 
 impl From<secp256k1::Error> for DuoError {
     fn from(err: secp256k1::Error) -> Self {
+        DuoError::Internal(anyhow::Error::from(err))
+    }
+}
+
+impl From<SystemTimeError> for DuoError {
+    fn from(err: SystemTimeError) -> Self {
         DuoError::Internal(anyhow::Error::from(err))
     }
 }

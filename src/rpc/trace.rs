@@ -32,6 +32,7 @@ use std::{
 use tokio_stream::{Stream, StreamExt};
 use tonic::Response;
 use tracing::*;
+use crate::consensus::is_parlia;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StateUpdate {
@@ -264,10 +265,6 @@ where
     let engine = engine_factory(None, chain_spec.clone(), None)?;
 
     let mut analysis_cache = AnalysisCache::default();
-    let mut parlia = false;
-    if let SealVerificationParams::Parlia { .. } = chain_spec.consensus.seal_verification {
-            parlia = true;
-    }
     for (sender, message, trace_types) in calls {
         let (output, updates, trace) = {
             let mut buffer = LoggingBuffer::new(&mut buffer);
@@ -286,7 +283,7 @@ where
                 &message,
                 sender,
                 engine.get_beneficiary(&header),
-                parlia,
+                is_parlia(engine.name()),
             )?;
 
             state.write_to_state_same_block()?;

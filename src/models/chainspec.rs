@@ -5,6 +5,7 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     time::Duration,
 };
+use sha3::{Digest, Keccak256};
 
 type NodeUrl = String;
 
@@ -119,6 +120,17 @@ impl ChainSpec {
         forks.remove(&BlockNumber(0));
 
         forks
+    }
+
+    pub fn try_get_code_with_hash(&self, block_number: BlockNumber, address: &Address) -> Option<(H256, Bytes)> {
+        if let Some(contracts) = self.contracts.get(&block_number) {
+            if let Some(contract) = contracts.get(&address) {
+                if let Contract::Contract { code } = contract {
+                    return Some((H256::from_slice(&Keccak256::digest(&code)[..]), code.clone()));
+                }
+            }
+        }
+        None
     }
 
     pub fn is_on_ramanujan(&self, number: &BlockNumber) -> bool {
