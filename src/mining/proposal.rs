@@ -70,7 +70,7 @@ pub fn create_block_header(
         parent_hash: parent_header.hash(),
         number: parent_header.number + 1,
         beneficiary: config.lock().unwrap().get_ether_base(),
-        /// Update in the prepare func.
+        /// Will update more in the prepare func within consensus.
         difficulty: U256::ZERO,
         extra_data: config.lock().unwrap().get_extra_data(),
         timestamp,

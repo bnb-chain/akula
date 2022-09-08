@@ -42,3 +42,10 @@ impl MiningConfig {
         }
     }
 }
+
+#[derive(Debug)]
+pub struct MiningStatus {
+    pub pending_result_ch: mpsc::Sender<MiningBlock>,
+    pub mining_result_ch: mpsc::Sender<MiningBlock>,
+    pub mining_result_pos_ch: mpsc::Sender<MiningBlock>,
+}

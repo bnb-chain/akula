@@ -4,7 +4,7 @@ use crate::{
     kv::{mdbx::MdbxTransaction, tables},
     mining::{
         proposal::{create_block_header, create_proposal},
-        state::MiningConfig,
+        state::*,
     },
     models::{BlockHeader, BlockNumber, ChainSpec},
     res::chainspec,
@@ -27,15 +27,16 @@ use std::{
 use tokio::io::copy;
 use tracing::debug;
 
-pub const EXEC_BLOCK: StageId = StageId("ExecBlock");
+pub const STAGE_EXEC_BLOCK: StageId = StageId("StageExecBlock");
 // DAOForkExtraRange is the number of consecutive blocks from the DAO fork point
 // to override the extra-data in to prevent no-fork attacks.
 pub const DAOFORKEXTRARANG: i32 = 10;
 
 #[derive(Debug)]
 pub struct ExecBlock {
-    pub config: Arc<Mutex<MiningConfig>>,
+    pub mining_status: Arc<Mutex<MiningStatus>>,
     pub mining_block: Arc<Mutex<MiningBlock>>,
+    pub mining_config: Arc<Mutex<MiningConfig>>,
     pub chain_spec: ChainSpec,
 }
 
@@ -45,7 +46,7 @@ where
     E: EnvironmentKind,
 {
     fn id(&self) -> StageId {
-        EXEC_BLOCK
+        STAGE_EXEC_BLOCK
     }
 
     // ApplyDAOHardFork modifies the state database according to the DAO hard-fork
@@ -103,6 +104,8 @@ where
                 &mut state,
             );
         }
+
+        // TODO: Add transaction to mining block!
 
         Ok(ExecOutput::Progress {
             stage_progress: parent_number + 1,

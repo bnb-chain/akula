@@ -230,26 +230,21 @@ impl Clique {
 
         // Ensure the extra data has all its components
         if header.extra_data.len() < EXTRA_VANITY {
-            let mut left = EXTRA_VANITY - header.extra_data.len();
-            while left > 0 {
-                //TODO Frank: header.extra_data = [header.extra_data, Bytes::new()].concat().to_bytes();
-                left -= 1;
+            let mut extra = header.extra_data.clone().slice(..).to_vec();
+            while extra.len() < EXTRA_VANITY {
+                extra.push(0);
             }
-            // let out = s.out();
-            // header.extra_data = out;
+            header.extra_data = Bytes::copy_from_slice(extra.clone().as_slice());
         }
-        //TODO Frank: header.extra_data = Bytes::from(header.extra_data.get(0..EXTRA_VANITY).unwrap());
 
+        let mut extra = header.extra_data.clone().slice(..).to_vec();
         if self.state.lock().is_epoch(number) {
             for signer in snap.validators {
-                // TODO Frank: [header.extra_data, signer.as_bytes()].concat();
+                extra.extend_from_slice(&signer[..]);
             }
         }
-        // TODO: frank let extra_seal = [Bytes::new(); EXTRA_SEAL];
-        //  [header.extra_data, extra_seal].concat();
-
-        // Mix digest is reserved for now, set to empty
-        header.mix_hash = H256::zero();
+        let extra_seal_bytes = vec![0; EXTRA_SEAL];
+        extra.extend_from_slice(extra_seal_bytes.as_slice());
 
         // Ensure the timestamp has the correct delay
         let mut cursor = tx.cursor(tables::Header)?;

@@ -501,6 +501,7 @@ fn main() -> anyhow::Result<()> {
                         exit_after_batch: opt.execution_exit_after_batch,
                         batch_until: None,
                         commit_every: None,
+                        mining_status: None,
                     },
                     false,
                 );
@@ -551,8 +552,7 @@ fn main() -> anyhow::Result<()> {
                         dao_fork_block: Some(BigInt::new(num_bigint::Sign::Plus, vec![])),
                         dao_fork_support: false,
                     };
-                    let conf = Arc::new(Mutex::new(config));
-                    //staged_sync.enable_mining(Arc::clone(&conf), chainspec.clone());
+                    let mining_config_mutex = Arc::new(Mutex::new(config));
                     info!("Mining enabled");
                     let mining_block = MiningBlock {
                         header: BlockHeader {
@@ -576,20 +576,28 @@ fn main() -> anyhow::Result<()> {
                         uncles: vec![],
                     };
                     let mining_block_mutex = Arc::new(Mutex::new(mining_block));
+                    let mining_status = MiningStatus::new();
+                    let mining_status_mutex = Arc::new(Mutex::new(mining_status));
                     staged_sync.push(
                         CreateBlock {
-                            config: Arc::clone(&conf),
+                            mining_status: Arc::clone(&mining_status_mutex),
                             mining_block: Arc::clone(&mining_block_mutex),
+                            mining_config: Arc::clone(&mining_config_mutex),
                             chain_spec: chainspec.clone(),
                         },
                         false,
                     );
 
                     staged_sync.push(
-                        ExecBlock {
-                            config: Arc::clone(&conf),
-                            mining_block: Arc::clone(&mining_block_mutex),
-                            chain_spec: chainspec.clone(),
+                        Execution {
+                            batch_size: opt.execution_batch_size.saturating_mul(1_000_000_000_u64),
+                            history_batch_size: opt
+                                .execution_history_batch_size
+                                .saturating_mul(1_000_000_000_u64),
+                            exit_after_batch: opt.execution_exit_after_batch,
+                            batch_until: None,
+                            commit_every: None,
+                            mining_status: Arc::clone(&mining_status_mutex),
                         },
                         false,
                     );
@@ -602,7 +610,12 @@ fn main() -> anyhow::Result<()> {
                     );
                     info!("createBlock stage enabled");
                 };
-                staged_sync.push(Finish, !opt.prune);
+                staged_sync.push(
+                    Finish {
+                        mining_status: Arc::clone(&mining_status_mutex),
+                    },
+                    !opt.prune,
+                );
                 info!("Running staged sync");
                 staged_sync.run(&db).await?;
 

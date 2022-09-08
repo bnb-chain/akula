@@ -5,7 +5,7 @@ use crate::{
     kv::{mdbx::MdbxTransaction, tables},
     mining::{
         proposal::{create_block_header, create_proposal},
-        state::MiningConfig,
+        state::*,
     },
     models::*,
     stagedsync::stage::*,
@@ -21,7 +21,7 @@ use num_traits::ToPrimitive;
 use parbytes::ToPretty;
 use std::{
     rc::Rc,
-    sync::{Arc, Mutex},
+    sync::{mpsc, Arc, Mutex},
 };
 use tokio::io::copy;
 use tracing::debug;
@@ -32,20 +32,27 @@ pub const CREATE_BLOCK: StageId = StageId("CreateBlock");
 pub const DAOFORKEXTRARANG: i32 = 10;
 
 #[derive(Debug)]
-pub struct CreateBlock {
-    pub config: Arc<Mutex<MiningConfig>>,
-    pub mining_block: Arc<Mutex<MiningBlock>>,
-    pub chain_spec: ChainSpec,
-}
-
-#[derive(Debug)]
 pub struct MiningBlock {
     pub header: BlockHeader,
     pub uncles: Vec<BlockHeader>,
-    // TODO: pub txs:      types.Transactions,
-    //TODO pub receipts types.Receipts,
-    //TODO pub local_Txs  types.TransactionsStream
-    //TODO pub remote_Txs types.TransactionsStream
+}
+
+impl MiningStatus {
+    pub fn new() -> Self {
+        Self {
+            pending_result_ch: mpsc::channel().0,
+            mining_result_ch: mpsc::channel().0,
+            mining_result_pos_ch: mpsc::channel().0,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct CreateBlock {
+    pub mining_status: Arc<Mutex<MiningStatus>>,
+    pub mining_block: Arc<Mutex<MiningBlock>>,
+    pub mining_config: Arc<Mutex<MiningConfig>>,
+    pub chain_spec: ChainSpec,
 }
 
 #[async_trait]
@@ -66,17 +73,19 @@ where
         'db: 'tx,
     {
         let parent_number = input.stage_progress.unwrap();
-
         let parent_header = get_header(tx, parent_number)?;
 
-        let mut proposal = create_block_header(&parent_header, Arc::clone(&self.config))?;
-        if is_clique(self.config.lock().unwrap().consensus.name()) {
-            if let Some(cl) = self.config.lock().unwrap().consensus.clique() {
+        // TODO, complete the remaining tx related part after txpool ready.
+        let mut proposal = create_block_header(&parent_header, Arc::clone(&self.mining_config))?;
+        debug!("Empty block created: {:?}", proposal);
+
+        if is_clique(self.mining_config.lock().unwrap().consensus.name()) {
+            if let Some(cl) = self.mining_config.lock().unwrap().consensus.clique() {
                 cl.prepare(tx, &mut proposal);
             }
 
             // If we are care about TheDAO hard-fork check whether to override the extra-data or not
-            if let Some(dao_block) = &self.config.lock().unwrap().dao_fork_block {
+            if let Some(dao_block) = &self.mining_config.lock().unwrap().dao_fork_block {
                 // Check whether the block is among the fork extra-override range
                 let limit = BigInt::checked_add(&dao_block, &BigInt::from(DAOFORKEXTRARANG));
                 if proposal.number.0.cmp(&DAOFORKEXTRARANG.to_u64().unwrap()) >= Ordering::Equal
@@ -85,7 +94,7 @@ where
                     let dao_fork_block_extra =
                         hex::decode("0x64616f2d686172642d666f726b").unwrap().into();
                     // Depending whether we support or oppose the fork, override differently
-                    if self.config.lock().unwrap().dao_fork_support {
+                    if self.mining_config.lock().unwrap().dao_fork_support {
                         proposal.extra_data = dao_fork_block_extra;
                     } else if bytes::Bytes::eq(&proposal.extra_data, &dao_fork_block_extra) {
                         // If miner opposes, don't let it use the reserved extra-data
@@ -97,7 +106,8 @@ where
 
         // TODO: make uncles for proposal block
 
-        debug!("Proposal created: {:?}", proposal); // TODO save block proposal
+        self.mining_block.lock().unwrap().header = proposal;
+        debug!("Miner created block with data");
 
         Ok(ExecOutput::Progress {
             stage_progress: parent_number + 1,

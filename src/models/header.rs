@@ -2,7 +2,10 @@ use super::*;
 use crate::crypto::*;
 use bytes::{Bytes, BytesMut};
 use fastrlp::*;
+use hash::keccak;
+use parbytes::*;
 use parity_scale_codec::*;
+use serde::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Default, Encode, Decode)]
 /// Ethereum block header definition.
@@ -224,7 +227,7 @@ impl BlockHeader {
         keccak256(&out[..])
     }
 
-    fn encode_with_chain_id(&self, out: &mut dyn BufMut, chain_id :u64) {
+    fn encode_with_chain_id(&self, out: &mut dyn BufMut, chain_id: u64) {
         self.rlp_header_with_chain_id().encode(out);
         Encodable::encode(&chain_id, out);
         Encodable::encode(&self.parent_hash, out);

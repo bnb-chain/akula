@@ -1,7 +1,7 @@
 use self::difficulty::BlockDifficultyBombData;
 use super::{base::ConsensusEngineBase, *};
 use crate::{h256_to_u256, BlockReader};
-use ::ethash::LightDAG;
+use ethash::LightDAG;
 use lru::LruCache;
 use parking_lot::Mutex;
 use std::sync::Arc;
@@ -225,13 +225,5 @@ impl Consensus for Ethash {
         } else {
             vec![]
         })
-    }
-
-    fn parlia(&mut self) -> Option<&mut Parlia> {
-        None
-    }
-
-    fn clique(&mut self) -> Option<&mut Clique> {
-        None
     }
 }

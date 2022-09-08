@@ -1,10 +1,18 @@
-use crate::{kv::mdbx::*, models::*, stagedsync::stage::*, StageId};
+use crate::{
+    kv::mdbx::*,
+    mining::state::*,
+    models::*,
+    stagedsync::{stage::*, stages::*},
+    StageId,
+};
 use async_trait::async_trait;
 
 pub const FINISH: StageId = StageId("Finish");
 
 #[derive(Debug)]
-pub struct Finish;
+pub struct Finish {
+    pub mining_status: Arc<Mutex<MiningStatus>>,
+}
 
 #[async_trait]
 impl<'db, E> Stage<'db, E> for Finish

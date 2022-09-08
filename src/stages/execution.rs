@@ -11,9 +11,10 @@ use crate::{
         mdbx::*,
         tables::{self, CallTraceSetEntry},
     },
+    mining::state::*,
     models::*,
-    stagedsync::{format_duration, stage::*, util::*},
-    upsert_storage_value, Buffer, StageId,
+    stagedsync::{format_duration, stage::*, stages::EXECUTION, util::*},
+    upsert_storage_value, Buffer, HeaderReader,StageId,
 };
 use anyhow::format_err;
 use async_trait::async_trait;
@@ -31,6 +32,7 @@ pub struct Execution {
     pub exit_after_batch: bool,
     pub batch_until: Option<BlockNumber>,
     pub commit_every: Option<Duration>,
+    pub mining_status: Arc<Mutex<MiningStatus>>,
 }
 
 #[allow(clippy::too_many_arguments)]
