@@ -24,21 +24,6 @@
     clippy::unused_io_amount
 )]
 #![doc = include_str!("../README.md")]
-
-extern crate ethabi;
-extern crate ethereum_types;
-extern crate lru_cache;
-extern crate parity_bytes as parbytes;
-extern crate parking_lot;
-extern crate rlp;
-#[macro_use]
-extern crate lazy_static;
-extern crate ethabi_derive;
-extern crate rustc_hex;
-extern crate secp256k1;
-#[macro_use]
-extern crate ethabi_contract;
-
 pub mod accessors;
 #[doc(hidden)]
 pub mod binutil;

@@ -90,8 +90,6 @@ pub enum ForkChoiceMode {
 }
 
 pub trait Consensus: Debug + Send + Sync + 'static {
-    /// The name of this engine.
-    fn name(&self) -> &str;
 
     fn fork_choice_mode(&self) -> ForkChoiceMode;
 
