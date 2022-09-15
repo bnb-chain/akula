@@ -1,7 +1,6 @@
 use crate::consensus::parlia::*;
 use crate::crypto;
 use ethereum_types::{Public, H256};
-
 use primitive_types::H160;
 pub type Address = H160;
 

@@ -279,7 +279,6 @@ where
                 &message,
                 sender,
                 engine.get_beneficiary(&header),
-                is_parlia(engine.name()),
             )?;
 
             state.write_to_state_same_block()?;
