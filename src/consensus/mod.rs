@@ -157,6 +157,14 @@ pub trait Consensus: Debug + Send + Sync + 'static {
         Ok(())
     }
 
+    fn prepare(
+        &mut self,
+        state: &dyn StateReader,
+        header: &mut BlockHeader,
+    ) -> anyhow::Result<(), DuoError> {
+        Ok(())
+    }
+
     /// To be overridden for consensus validators' snap.
     fn snapshot(
         &mut self,

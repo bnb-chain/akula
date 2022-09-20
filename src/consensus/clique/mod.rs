@@ -5,9 +5,9 @@ pub use state::CliqueState;
 
 use crate::{
     consensus::{
-        clique::snapshot::Snapshot, fork_choice_graph::ForkChoiceGraph, state::CliqueBlock,
-        CliqueError, Consensus, ConsensusEngineBase, ConsensusState, DuoError,
-        DuoError::Validation, FinalizationChange, ForkChoiceMode, ValidationError, *,
+        clique::*, fork_choice_graph::ForkChoiceGraph, state::CliqueBlock, CliqueError, Consensus,
+        ConsensusEngineBase, ConsensusState, DuoError, DuoError::Validation, FinalizationChange,
+        ForkChoiceMode, ValidationError, *,
     },
     kv::{mdbx::*, tables},
     models::{
@@ -49,7 +49,7 @@ pub const SNAP_CACHE_NUM: usize = 2048;
 /// Number of blocks after which to save the snapshot to the database
 pub const CHECKPOINT_INTERVAL: u64 = 1024;
 /// Difficulty for INTURN block
-pub const DIFF_INTURN: ethnum::U256 = ethnum::U256([2, 0]);
+//  pub const DIFF_INTURN: ethnum::U256 = ethnum::U256([2, 0]);
 /// Difficulty for NOTURN block
 pub const DIFF_NOTURN: ethnum::U256 = ethnum::U256([1, 0]);
 /// Address length of signer
@@ -208,10 +208,77 @@ impl Clique {
         }
     }
 
-    // Preparing all the consensus fields of the header for running the transactions on top.
-    pub fn prepare<E>(
+    fn snapshot(
         &mut self,
-        tx: &mut MdbxTransaction<'_, RW, E>,
+        db: &dyn CliqueSnapRW,
+        block_number: BlockNumber,
+        block_hash: H256,
+    ) -> anyhow::Result<(), DuoError> {
+        let mut snap_cache = self.recent_snaps.write();
+
+        let mut block_number = block_number;
+        let mut block_hash = block_hash;
+        let mut skip_headers = Vec::new();
+
+        let mut snap: Snapshot;
+        loop {
+            if let Some(cached) = snap_cache.get_mut(&block_hash) {
+                snap = cached.clone();
+                break;
+            }
+            if block_number % CHECKPOINT_INTERVAL == 0 {
+                if let Some(cached) = db.read_snap(block_hash)? {
+                    debug!("snap find from db {} {:?}", block_number, block_hash);
+                    snap = cached;
+                    break;
+                }
+            }
+            if block_number == 0 {
+                let header = db.read_header(block_number, block_hash)?.ok_or_else(|| {
+                    ParliaError::UnknownHeader {
+                        number: block_number,
+                        hash: block_hash,
+                    }
+                })?;
+                let validators = util::parse_epoch_validators(
+                    &header.extra_data[VANITY_LENGTH..(header.extra_data.len() - SIGNATURE_LENGTH)],
+                )?;
+                snap = Snapshot::new(validators, block_number.0, block_hash, self.epoch);
+                break;
+            }
+            let header = db.read_header(block_number, block_hash)?.ok_or_else(|| {
+                ParliaError::UnknownHeader {
+                    number: block_number,
+                    hash: block_hash,
+                }
+            })?;
+            block_hash = header.parent_hash;
+            block_number = BlockNumber(header.number.0 - 1);
+            skip_headers.push(header);
+        }
+        for h in skip_headers.iter().rev() {
+            snap = snap.apply(db, h, self.chain_id)?;
+        }
+
+        snap_cache.insert(snap.block_hash, snap.clone());
+        if snap.block_number % CHECKPOINT_INTERVAL == 0 {
+            debug!("snap save {} {:?}", snap.block_number, snap.block_hash);
+            db.write_snap(&snap)?;
+        }
+        return Ok(());
+    }
+}
+
+/// whether it is a clique engine
+pub fn is_clique(engine: &str) -> bool {
+    engine == "Clique"
+}
+
+impl Consensus for Clique {
+    // Preparing all the consensus fields of the header for running the transactions on top.
+    fn prepare<E>(
+        &mut self,
+        state: &dyn StateReader,
         header: &mut BlockHeader,
     ) -> anyhow::Result<(), DuoError>
     where
@@ -223,7 +290,7 @@ impl Clique {
 
         let number = header.number;
         // Assemble the voting snapshot to check which votes make sense
-        let snap = self.snapshot(tx, BlockNumber(number.0 - 1), header.parent_hash)?;
+        let snap = self.snapshot(state, BlockNumber(number.0 - 1), header.parent_hash)?;
 
         // Set the correct difficulty
         header.difficulty = calculate_difficulty(&snap, self.signer);
@@ -262,84 +329,6 @@ impl Clique {
         Ok(())
     }
 
-    // snapshot retrieves the authorization snapshot at a given point in time.
-    pub fn snapshot<E>(
-        &mut self,
-        txn: &mut MdbxTransaction<'_, RW, E>,
-        mut block_number: BlockNumber,
-        mut block_hash: H256,
-    ) -> anyhow::Result<Snapshot, DuoError>
-    where
-        E: EnvironmentKind,
-    {
-        debug!("snapshot header {}", block_number);
-        let mut snap_by_hash = self.recent_snaps.write();
-        let mut headers = Vec::new();
-        let mut snap: Snapshot;
-
-        loop {
-            debug!("snap loop header {} {:?}", block_number, block_hash);
-            if let Some(new_snap) = snap_by_hash.get_mut(&block_hash) {
-                snap = new_snap.clone();
-                break;
-            }
-            if block_number % CHECKPOINT_INTERVAL == 0 {
-                if let Some(new_snap) = Snapshot::load(txn, block_hash)? {
-                    snap = new_snap;
-                    info!("snap find from db {} {:?}", block_number, block_hash);
-                    break;
-                }
-            }
-            if block_number == 0 {
-                let header = txn.read_header(block_number, block_hash)?;
-                if header.is_none() {
-                    return Err(Validation(ValidationError::UnknownHeader {
-                        number: block_number,
-                        hash: block_hash,
-                    }));
-                }
-                let genesis = header.unwrap();
-                let validator_bytes = &genesis.extra_data
-                    [VANITY_LENGTH..(genesis.extra_data.len() - SIGNATURE_LENGTH)];
-                let validators = snapshot::parse_validators(validator_bytes)?;
-                snap = Snapshot::new(
-                    validators,
-                    block_number.0,
-                    block_hash,
-                    self.state.lock().get_epoch(),
-                );
-                break;
-            }
-            if let Some(header) = txn.read_header(block_number, block_hash)? {
-                block_hash = header.parent_hash;
-                block_number = BlockNumber(header.number.0 - 1);
-                headers.push(header);
-            } else {
-                return Err(Validation(ValidationError::UnknownHeader {
-                    number: block_number,
-                    hash: block_hash,
-                }));
-            }
-        }
-        for h in headers.iter().rev() {
-            snap = snap.apply(txn, h, self.base.chain_id)?;
-        }
-
-        debug!("snap insert {} {:?}", snap.number, snap.hash);
-        snap_by_hash.insert(snap.hash, snap.clone());
-        if snap.number % CHECKPOINT_INTERVAL == 0 {
-            snap.store(txn)?;
-        }
-        return Ok(snap);
-    }
-}
-
-/// whether it is a clique engine
-pub fn is_clique(engine: &str) -> bool {
-    engine == "Clique"
-}
-
-impl Consensus for Clique {
     fn pre_validate_block(&self, block: &Block, state: &dyn BlockReader) -> Result<(), DuoError> {
         if !block.ommers.is_empty() {
             return Err(ValidationError::TooManyOmmers.into());

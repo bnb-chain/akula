@@ -19,7 +19,6 @@ use hex::FromHex;
 use mdbx::{EnvironmentKind, RW};
 use num_bigint::{BigInt, Sign};
 use num_traits::ToPrimitive;
-use parbytes::ToPretty;
 use std::{
     cmp::Ordering,
     sync::{Arc, Mutex},
@@ -81,7 +80,7 @@ where
         let parent_header = get_header(tx, parent_number)?;
 
         let current = &self.mining_block.lock().unwrap();
-        if is_clique(self.config.lock().unwrap().consensus.name()) {
+        if self.chain_spec.consensus.is_clique() {
             // If we are care about TheDAO hard-fork check whether to override the extra-data or not
             if self.config.lock().unwrap().dao_fork_support
                 && self

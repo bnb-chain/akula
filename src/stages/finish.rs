@@ -2,10 +2,11 @@ use crate::{
     kv::mdbx::*,
     mining::state::*,
     models::*,
-    stagedsync::{stage::*, stages::*},
+    stagedsync::{stage::*, stage::*},
     StageId,
 };
 use async_trait::async_trait;
+use std::sync::{Arc, Mutex};
 
 pub const FINISH: StageId = StageId("Finish");
 

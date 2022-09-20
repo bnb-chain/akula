@@ -75,10 +75,11 @@ pub fn recover_creator(header: &BlockHeader, chain_id: ChainId) -> Result<Addres
     let data = &header.extra_data;
 
     if data.len() < VANITY_LENGTH + SIGNATURE_LENGTH {
-        return Err(DuoError::Validation(ValidationError::WrongHeaderExtraLen {
+        return Err(CliqueError::WrongHeaderExtraLen {
             expected: VANITY_LENGTH + SIGNATURE_LENGTH,
             got: data.len(),
-        }));
+        }
+        .into());
     }
     let signature_offset = header.extra_data.len() - SIGNATURE_LENGTH;
 
@@ -129,7 +130,7 @@ mod tests {
             header.hash(),
             hex!("04055304e432294a65ff31069c4d3092ff8b58f009cdb50eba5351e0332ad0f6").into()
         );
-        let addr = recover_creator(header, &(56_u64)).unwrap();
+        let addr = recover_creator(header, ChainId(56_u64)).unwrap();
         assert_eq!(
             addr,
             Address::from_str("2a7cdd959bfe8d9487b2a43b33565295a698f7e2").unwrap()

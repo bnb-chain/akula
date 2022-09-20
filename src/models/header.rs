@@ -2,10 +2,7 @@ use super::*;
 use crate::crypto::*;
 use bytes::{Bytes, BytesMut};
 use fastrlp::*;
-use hash::keccak;
-use parbytes::*;
 use parity_scale_codec::*;
-use serde::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Default, Encode, Decode)]
 /// Ethereum block header definition.

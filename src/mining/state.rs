@@ -1,4 +1,5 @@
 use crate::consensus::Consensus;
+use crate::stages::*;
 use bytes::Bytes;
 use ethereum_types::Address;
 use num_bigint::BigInt;
@@ -6,7 +7,7 @@ use primitive_types::H256;
 use secp256k1::SecretKey;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
-    Arc,
+    mpsc, Arc,
 };
 fn default_extra_data() -> Bytes {
     // TODO replace by version string once we have versioned releases

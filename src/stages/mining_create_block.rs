@@ -18,7 +18,6 @@ use hex::FromHex;
 use mdbx::{EnvironmentKind, RW};
 use num_bigint::{BigInt, Sign};
 use num_traits::ToPrimitive;
-use parbytes::ToPretty;
 use std::{
     rc::Rc,
     sync::{mpsc, Arc, Mutex},
@@ -79,10 +78,12 @@ where
         let mut proposal = create_block_header(&parent_header, Arc::clone(&self.mining_config))?;
         debug!("Empty block created: {:?}", proposal);
 
-        if is_clique(self.mining_config.lock().unwrap().consensus.name()) {
-            if let Some(cl) = self.mining_config.lock().unwrap().consensus.clique() {
-                cl.prepare(tx, &mut proposal);
-            }
+        if self.chain_spec.consensus.is_clique() {
+            Clique::prepare(
+                &mut self.mining_config.lock().unwrap().consensus,
+                tx,
+                &mut proposal,
+            );
 
             // If we are care about TheDAO hard-fork check whether to override the extra-data or not
             if let Some(dao_block) = &self.mining_config.lock().unwrap().dao_fork_block {

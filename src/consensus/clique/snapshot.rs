@@ -6,145 +6,146 @@ use crate::{
 };
 use ethereum_types::Address;
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    ops::Sub,
-    sync::Arc,
-};
-use tracing::{debug, info};
+use std::collections::BTreeMap;
+use tracing::*;
 
-/// Snapshot for each block.
+/// Snapshot, record validators and proposal from epoch chg.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct Snapshot {
-    pub epoch: u64,
-    pub number: u64,
-    pub hash: H256,
-
-    /// a list of all valid validators, sorted by ascending order.
-    pub validators: BTreeSet<Address>,
-    pub recents: BTreeMap<u64, Address>,
+pub struct CliqueSnapshot {
+    /// record current epoch number
+    pub epoch_num: u64,
+    /// record block number when epoch chg
+    pub block_number: u64,
+    /// record block hash when epoch chg
+    pub block_hash: H256,
+    /// record epoch validators when epoch chg, sorted by ascending order.
+    pub validators: Vec<Address>,
+    /// record recent block proposers
+    pub recent_proposers: BTreeMap<u64, Address>,
 }
 
-impl Snapshot {
-    pub fn new(validators: BTreeSet<Address>, number: u64, hash: H256, epoch: u64) -> Self {
-        Snapshot {
+impl CliqueSnapshot {
+    pub fn new(
+        validators: Vec<Address>,
+        block_number: u64,
+        block_hash: H256,
+        epoch_num: u64,
+    ) -> Self {
+        CliqueSnapshot {
+            block_number,
+            block_hash,
+            epoch_num,
             validators,
-            number,
-            hash,
-            epoch,
-            ..Default::default()
+            recent_proposers: Default::default(),
         }
     }
 
-    pub fn load<E: EnvironmentKind>(
-        txn: &MdbxTransaction<'_, RW, E>,
-        hash: H256,
-    ) -> anyhow::Result<Option<Snapshot>> {
-        let snap_op = txn.get(tables::ColParliaSnapshot, hash)?;
+    pub fn apply(
+        &mut self,
+        db: &dyn SnapRW,
+        header: &BlockHeader,
+        chain_id: ChainId,
+    ) -> Result<CliqueSnapshot, DuoError> {
+        let block_number = header.number.0;
+        if self.block_number + 1 != block_number {
+            return Err(ParliaError::SnapFutureBlock {
+                expect: BlockNumber(self.block_number + 1),
+                got: BlockNumber(block_number),
+            }
+            .into());
+        }
+
+        let mut snap = self.clone();
+        snap.block_hash = header.hash();
+        snap.block_number = block_number;
+        let limit = (snap.validators.len() / 2 + 1) as u64;
+        if block_number >= limit {
+            snap.recent_proposers.remove(&(block_number - limit));
+        }
+
+        let proposer = util::recover_creator(header, chain_id)?;
+        if !snap.validators.contains(&proposer) {
+            return Err(ParliaError::SignerUnauthorized {
+                number: BlockNumber(block_number),
+                signer: proposer,
+            }
+            .into());
+        }
+        if snap
+            .recent_proposers
+            .iter()
+            .find(|(_, addr)| **addr == proposer)
+            .is_some()
+        {
+            return Err(ParliaError::SignerOverLimit { signer: proposer }.into());
+        }
+        snap.recent_proposers.insert(block_number, proposer);
+
+        let check_epoch_num = (snap.validators.len() / 2) as u64;
+        if block_number > 0 && block_number % snap.epoch_num == check_epoch_num {
+            let epoch_header = util::find_ancient_header(db, header, check_epoch_num)?;
+            let epoch_extra = epoch_header.extra_data;
+            let next_validators = util::parse_epoch_validators(
+                &epoch_extra[VANITY_LENGTH..(epoch_extra.len() - SIGNATURE_LENGTH)],
+            )?;
+
+            let pre_limit = snap.validators.len() / 2 + 1;
+            let next_limit = next_validators.len() / 2 + 1;
+            if next_limit < pre_limit {
+                for i in 0..(pre_limit - next_limit) {
+                    snap.recent_proposers
+                        .remove(&(block_number - ((next_limit + i) as u64)));
+                }
+            }
+            snap.validators = next_validators;
+        }
+        Ok(snap)
+    }
+
+    /// Returns true if the block difficulty should be `inturn`
+    pub fn inturn(&self, author: &Address) -> bool {
+        self.suppose_validator() == *author
+    }
+
+    pub fn suppose_validator(&self) -> Address {
+        self.validators[((self.block_number + 1) as usize) % self.validators.len()]
+    }
+
+    /// index_of find validator's index in validators list
+    pub fn index_of(&self, validator: &Address) -> i32 {
+        for (i, addr) in self.validators.iter().enumerate() {
+            if *validator == *addr {
+                return i as i32;
+            }
+        }
+        -1
+    }
+}
+
+/// to handle snap from db
+pub trait CliqueSnapRW: HeaderReader {
+    /// read snap from db
+    fn read_snap(&self, block_hash: H256) -> anyhow::Result<Option<CliqueSnapshot>>;
+    /// write snap into db
+    fn write_snap(&self, snap: &CliqueSnapshot) -> anyhow::Result<()>;
+}
+
+impl<E: EnvironmentKind> CliqueSnapRW for MdbxTransaction<'_, RW, E> {
+    fn read_snap(&self, block_hash: H256) -> anyhow::Result<Option<CliqueSnapshot>> {
+        let snap_op = self.get(tables::ColCliqueSnapshot, block_hash)?;
         Ok(match snap_op {
             None => None,
             Some(val) => Some(serde_json::from_slice(&val)?),
         })
     }
 
-    pub fn store<E: EnvironmentKind>(
-        &self,
-        txn: &MdbxTransaction<'_, RW, E>,
-    ) -> anyhow::Result<()> {
-        debug!("snap store {}, {}", self.number, self.hash);
-        let value = serde_json::to_vec(&self)?;
-        txn.set(tables::ColParliaSnapshot, self.hash, value)
-    }
-
-    pub fn clone(&self) -> Snapshot {
-        Snapshot {
-            validators: self.validators.clone(),
-            recents: self.recents.clone(),
-            ..*self
-        }
-    }
-
-    pub fn apply<E>(
-        &mut self,
-        txn: &MdbxTransaction<'_, RW, E>,
-        header: &BlockHeader,
-        chain_id: ChainId,
-    ) -> Result<Snapshot, DuoError>
-    where
-        E: EnvironmentKind,
-    {
-        let num = header.number.into();
-        if self.number + 1 != num {
-            return Err(ValidationError::SnapFutureBlock {
-                expect: BlockNumber(self.number + 1),
-                got: BlockNumber(num),
-            }
-            .into());
-        }
-        let creator = recover_creator(header, chain_id)?;
-        let mut snap = self.clone();
-        snap.hash = header.hash();
-        snap.number = num;
-        let limit = (snap.validators.len() / 2 + 1) as u64;
-        if num >= limit {
-            snap.recents.remove(&(num - limit));
-        }
-        if !snap.validators.contains(&creator) {
-            return Err(ValidationError::SignerUnauthorized {
-                number: BlockNumber(num),
-                signer: creator,
-            }
-            .into());
-        }
-        for (_, recent) in snap.recents.iter() {
-            if *recent == creator {
-                return Err(ValidationError::SignerOverLimit { signer: creator }.into());
-            }
-        }
-        snap.recents.insert(num, creator);
-        if num > 0 && num % snap.epoch == (snap.validators.len() / 2) as u64 {
-            let checkpoint_header =
-                find_ancient_header(txn, header, (snap.validators.len() / 2) as u64)?;
-            let extra = checkpoint_header.extra_data;
-            let validator_bytes = &extra[VANITY_LENGTH..(extra.len() - SIGNATURE_LENGTH)];
-            let new_validators = parse_validators(validator_bytes)?;
-            let old_limit = snap.validators.len() / 2 + 1;
-            let new_limit = new_validators.len() / 2 + 1;
-            if new_limit < old_limit {
-                for i in 0..(old_limit - new_limit) {
-                    snap.recents.remove(&(num - ((new_limit + i) as u64)));
-                }
-            }
-            snap.validators = new_validators;
-        }
-        Ok(snap)
-    }
-
-    /// Returns true if the block difficulty should be `inturn`
-    pub fn inturn(&self, current_block_number: u64, author: &Address) -> bool {
-        if let Some(pos) = self.validators.iter().position(|x| *author == *x) {
-            return current_block_number % self.validators.len() as u64 == pos as u64;
-        }
-        false
-    }
-
-    pub fn suppose_validator(&self) -> Address {
-        let index = (self.number + 1) % (self.validators.len() as u64);
-        let mut ite = self.validators.iter();
-        let mut res = ite.next().unwrap();
-        if index > 0 {
-            for _ in 0..index {
-                res = ite.next().unwrap();
-            }
-        }
-        return *res;
-    }
-
-    pub fn back_off_time(&self, _: &ethereum_types::Address) -> u64 {
-        // TODO, so far so good.
-        return 0;
+    fn write_snap(&self, snap: &CliqueSnapshot) -> anyhow::Result<()> {
+        debug!("snap store {}, {}", snap.block_number, snap.block_hash);
+        let value = serde_json::to_vec(snap)?;
+        self.set(tables::ColCliqueSnapshot, snap.block_hash, value)
     }
 }
+<<<<<<< HEAD
 
 fn find_ancient_header<E>(
     txn: &MdbxTransaction<'_, RW, E>,
@@ -188,3 +189,5 @@ pub fn parse_validators(validators_bytes: &[u8]) -> Result<BTreeSet<Address>, Du
     }
     Ok(validators)
 }
+=======
+>>>>>>> 8668514 (update)

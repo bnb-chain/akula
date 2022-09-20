@@ -28,8 +28,14 @@ use jsonrpsee::{
     core::server::rpc_module::Methods, http_server::HttpServerBuilder, ws_server::WsServerBuilder,
 };
 use std::{
-    collections::HashSet, fs::OpenOptions, future::pending, io::Write, net::SocketAddr, panic,
-    sync::{Arc, Mutex},, time::Duration,
+    collections::HashSet,
+    fs::OpenOptions,
+    future::pending,
+    io::Write,
+    net::SocketAddr,
+    panic,
+    sync::{Arc, Mutex},
+    time::Duration,
 };
 use tokio::time::sleep;
 use tracing::*;
@@ -590,6 +596,7 @@ fn main() -> anyhow::Result<()> {
 
                     staged_sync.push(
                         Execution {
+                            max_block: opt.max_block,
                             batch_size: opt.execution_batch_size.saturating_mul(1_000_000_000_u64),
                             history_batch_size: opt
                                 .execution_history_batch_size

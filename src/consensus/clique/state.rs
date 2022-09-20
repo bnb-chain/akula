@@ -11,7 +11,7 @@ use tracing::*;
 const NONCE_AUTH: u64 = 0xffffffffffffffff;
 const NONCE_DROP: u64 = 0x0000000000000000;
 const DIFF_NOTURN: U256 = U256::ONE;
-const DIFF_INTURN: U256 = U256::new(2);
+pub const DIFF_INTURN: U256 = U256::new(2);
 
 #[derive(Clone, Debug, PartialEq)]
 struct Vote {
