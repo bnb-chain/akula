@@ -417,7 +417,6 @@ where
     }
 
     pub fn execute_and_check_block(&mut self) -> Result<Vec<Receipt>, DuoError> {
-
         self.engine.new_block(self.header, ConsensusNewBlockState::handle(self.chain_spec, self.header, &mut self.state)?)?;
         let receipts = self.execute_block_no_post_validation()?;
 

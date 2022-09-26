@@ -1,10 +1,11 @@
 //! Implementation of the BSC's POSA Engine.
 #![allow(missing_docs)]
 pub mod contract_upgrade;
-pub mod snapshot;
+mod snapshot;
 mod state;
-pub mod util;
-pub use snapshot::SnapRW;
+mod util;
+use fastrlp::Encodable;
+pub use snapshot::Snapshot;
 pub use state::ParliaNewBlockState;
 pub use util::{is_system_transaction, SYSTEM_ACCOUNT};
 
@@ -38,7 +39,6 @@ pub const SIGNATURE_LENGTH: usize = 65;
 pub const ADDRESS_LENGTH: usize = 20;
 /// Difficulty for INTURN block
 pub const DIFF_INTURN: U256 = U256([2, 0]);
-
 /// Difficulty for NOTURN block
 pub const DIFF_NOTURN: U256 = U256([1, 0]);
 /// Default value for mixhash
@@ -56,6 +56,7 @@ pub const SNAP_CACHE_NUM: usize = 2048;
 pub const CHECKPOINT_INTERVAL: u64 = 1024;
 /// Percentage to system reward.
 pub const SYSTEM_REWARD_PERCENT: usize = 4;
+pub const NEXT_FORK_HASH_SIZE : usize = 4;
 
 const MAX_SYSTEM_REWARD: &str = "0x56bc75e2d63100000";
 const INIT_TX_NUM: usize = 7;
@@ -138,6 +139,21 @@ impl Consensus for Parlia {
     }
 
     fn pre_validate_block(&self, _block: &Block, _state: &dyn BlockReader) -> Result<(), DuoError> {
+        Ok(())
+    }
+
+    fn prepare(
+        &mut self,
+        _state: &dyn StateReader,
+        _header: &mut BlockHeader,
+    ) -> anyhow::Result<(), DuoError> {
+        let snap = self.query_snap(_header.number.0 - 1, _header.parent_hash)?;
+        _header.difficulty = calculate_difficulty(&snap, &_header.beneficiary);
+
+        if _header.extra_data.len() < VANITY_LENGTH - NEXT_FORK_HASH_SIZE{
+            
+        }
+
         Ok(())
     }
 
@@ -571,4 +587,11 @@ fn back_off_time(snap: &Snapshot, val: &Address) -> u64 {
         y.shuffle(&mut rng);
         y[idx as usize]
     }
+}
+
+fn calculate_difficulty(snap: &Snapshot, signer: &Address) -> U256 {
+    if snap.inturn(signer) {
+        return DIFF_INTURN;
+    }
+    DIFF_NOTURN
 }

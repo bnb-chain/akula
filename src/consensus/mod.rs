@@ -159,8 +159,8 @@ pub trait Consensus: Debug + Send + Sync + 'static {
 
     fn prepare(
         &mut self,
-        state: &dyn StateReader,
-        header: &mut BlockHeader,
+        _state: &dyn StateReader,
+        _header: &mut BlockHeader,
     ) -> anyhow::Result<(), DuoError> {
         Ok(())
     }

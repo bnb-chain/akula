@@ -1,11 +1,11 @@
-pub mod clique_util;
-pub mod snapshot;
+// pub mod clique_util;
+// pub mod snapshot;
 pub mod state;
 pub use state::CliqueState;
 
 use crate::{
     consensus::{
-        clique::*, fork_choice_graph::ForkChoiceGraph, state::CliqueBlock, CliqueError, Consensus,
+        fork_choice_graph::ForkChoiceGraph, state::CliqueBlock, CliqueError, Consensus,
         ConsensusEngineBase, ConsensusState, DuoError, DuoError::Validation, FinalizationChange,
         ForkChoiceMode, ValidationError, *,
     },
@@ -208,65 +208,65 @@ impl Clique {
         }
     }
 
-    fn snapshot(
-        &mut self,
-        db: &dyn CliqueSnapRW,
-        block_number: BlockNumber,
-        block_hash: H256,
-    ) -> anyhow::Result<(), DuoError> {
-        let mut snap_cache = self.recent_snaps.write();
+    // fn snapshot(
+    //     &mut self,
+    //     db: &dyn SnapDB,
+    //     block_number: BlockNumber,
+    //     block_hash: H256,
+    // ) -> anyhow::Result<(), DuoError> {
+    //     let mut snap_cache = self.recent_snaps.write();
 
-        let mut block_number = block_number;
-        let mut block_hash = block_hash;
-        let mut skip_headers = Vec::new();
+    //     let mut block_number = block_number;
+    //     let mut block_hash = block_hash;
+    //     let mut skip_headers = Vec::new();
 
-        let mut snap: Snapshot;
-        loop {
-            if let Some(cached) = snap_cache.get_mut(&block_hash) {
-                snap = cached.clone();
-                break;
-            }
-            if block_number % CHECKPOINT_INTERVAL == 0 {
-                if let Some(cached) = db.read_snap(block_hash)? {
-                    debug!("snap find from db {} {:?}", block_number, block_hash);
-                    snap = cached;
-                    break;
-                }
-            }
-            if block_number == 0 {
-                let header = db.read_header(block_number, block_hash)?.ok_or_else(|| {
-                    ParliaError::UnknownHeader {
-                        number: block_number,
-                        hash: block_hash,
-                    }
-                })?;
-                let validators = util::parse_epoch_validators(
-                    &header.extra_data[VANITY_LENGTH..(header.extra_data.len() - SIGNATURE_LENGTH)],
-                )?;
-                snap = Snapshot::new(validators, block_number.0, block_hash, self.epoch);
-                break;
-            }
-            let header = db.read_header(block_number, block_hash)?.ok_or_else(|| {
-                ParliaError::UnknownHeader {
-                    number: block_number,
-                    hash: block_hash,
-                }
-            })?;
-            block_hash = header.parent_hash;
-            block_number = BlockNumber(header.number.0 - 1);
-            skip_headers.push(header);
-        }
-        for h in skip_headers.iter().rev() {
-            snap = snap.apply(db, h, self.chain_id)?;
-        }
+    //     let mut snap: Snapshot;
+    //     loop {
+    //         if let Some(cached) = snap_cache.get_mut(&block_hash) {
+    //             snap = cached.clone();
+    //             break;
+    //         }
+    //         if block_number % CHECKPOINT_INTERVAL == 0 {
+    //             if let Some(cached) = db.read_snap(block_hash)? {
+    //                 debug!("snap find from db {} {:?}", block_number, block_hash);
+    //                 snap = cached;
+    //                 break;
+    //             }
+    //         }
+    //         if block_number == 0 {
+    //             let header = db.read_header(block_number, block_hash)?.ok_or_else(|| {
+    //                 ParliaError::UnknownHeader {
+    //                     number: block_number,
+    //                     hash: block_hash,
+    //                 }
+    //             })?;
+    //             let validators = util::parse_epoch_validators(
+    //                 &header.extra_data[VANITY_LENGTH..(header.extra_data.len() - SIGNATURE_LENGTH)],
+    //             )?;
+    //             snap = Snapshot::new(validators, block_number.0, block_hash, self.epoch);
+    //             break;
+    //         }
+    //         let header = db.read_header(block_number, block_hash)?.ok_or_else(|| {
+    //             ParliaError::UnknownHeader {
+    //                 number: block_number,
+    //                 hash: block_hash,
+    //             }
+    //         })?;
+    //         block_hash = header.parent_hash;
+    //         block_number = BlockNumber(header.number.0 - 1);
+    //         skip_headers.push(header);
+    //     }
+    //     for h in skip_headers.iter().rev() {
+    //         snap = snap.apply(db, h, self.chain_id)?;
+    //     }
 
-        snap_cache.insert(snap.block_hash, snap.clone());
-        if snap.block_number % CHECKPOINT_INTERVAL == 0 {
-            debug!("snap save {} {:?}", snap.block_number, snap.block_hash);
-            db.write_snap(&snap)?;
-        }
-        return Ok(());
-    }
+    //     snap_cache.insert(snap.block_hash, snap.clone());
+    //     if snap.block_number % CHECKPOINT_INTERVAL == 0 {
+    //         debug!("snap save {} {:?}", snap.block_number, snap.block_hash);
+    //         db.write_snap(&snap)?;
+    //     }
+    //     return Ok(());
+    // }
 }
 
 /// whether it is a clique engine
@@ -276,58 +276,58 @@ pub fn is_clique(engine: &str) -> bool {
 
 impl Consensus for Clique {
     // Preparing all the consensus fields of the header for running the transactions on top.
-    fn prepare<E>(
-        &mut self,
-        state: &dyn StateReader,
-        header: &mut BlockHeader,
-    ) -> anyhow::Result<(), DuoError>
-    where
-        E: EnvironmentKind,
-    {
-        // If the block isn't a checkpoint, cast a random vote (good enough for now)
-        header.beneficiary = Address::zero();
-        header.nonce = H64::zero();
+    // fn prepare<E>(
+    //     &mut self,
+    //     state: &dyn StateReader,
+    //     header: &mut BlockHeader,
+    // ) -> anyhow::Result<(), DuoError>
+    // where
+    //     E: EnvironmentKind,
+    // {
+    //     // If the block isn't a checkpoint, cast a random vote (good enough for now)
+    //     header.beneficiary = Address::zero();
+    //     header.nonce = H64::zero();
 
-        let number = header.number;
-        // Assemble the voting snapshot to check which votes make sense
-        let snap = self.snapshot(state, BlockNumber(number.0 - 1), header.parent_hash)?;
+    //     let number = header.number;
+    //     // Assemble the voting snapshot to check which votes make sense
+    //     let snap = self.snapshot(state, BlockNumber(number.0 - 1), header.parent_hash)?;
 
-        // Set the correct difficulty
-        header.difficulty = calculate_difficulty(&snap, self.signer);
+    //     // Set the correct difficulty
+    //     header.difficulty = calculate_difficulty(&snap, self.signer);
 
-        // Ensure the extra data has all its components
-        if header.extra_data.len() < EXTRA_VANITY {
-            let mut extra = header.extra_data.clone().slice(..).to_vec();
-            while extra.len() < EXTRA_VANITY {
-                extra.push(0);
-            }
-            header.extra_data = Bytes::copy_from_slice(extra.clone().as_slice());
-        }
+    //     // Ensure the extra data has all its components
+    //     if header.extra_data.len() < EXTRA_VANITY {
+    //         let mut extra = header.extra_data.clone().slice(..).to_vec();
+    //         while extra.len() < EXTRA_VANITY {
+    //             extra.push(0);
+    //         }
+    //         header.extra_data = Bytes::copy_from_slice(extra.clone().as_slice());
+    //     }
 
-        let mut extra = header.extra_data.clone().slice(..).to_vec();
-        if self.state.lock().is_epoch(number) {
-            for signer in snap.validators {
-                extra.extend_from_slice(&signer[..]);
-            }
-        }
-        let extra_seal_bytes = vec![0; EXTRA_SEAL];
-        extra.extend_from_slice(extra_seal_bytes.as_slice());
+    //     let mut extra = header.extra_data.clone().slice(..).to_vec();
+    //     if self.state.lock().is_epoch(number) {
+    //         for signer in snap.validators {
+    //             extra.extend_from_slice(&signer[..]);
+    //         }
+    //     }
+    //     let extra_seal_bytes = vec![0; EXTRA_SEAL];
+    //     extra.extend_from_slice(extra_seal_bytes.as_slice());
 
-        // Ensure the timestamp has the correct delay
-        let mut cursor = tx.cursor(tables::Header)?;
-        let parent = get_header(&mut cursor, BlockNumber(number.0 - 1))?;
-        header.timestamp = parent.timestamp + self.period;
+    //     // Ensure the timestamp has the correct delay
+    //     let mut cursor = tx.cursor(tables::Header)?;
+    //     let parent = get_header(&mut cursor, BlockNumber(number.0 - 1))?;
+    //     header.timestamp = parent.timestamp + self.period;
 
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+    //     let now = SystemTime::now()
+    //         .duration_since(SystemTime::UNIX_EPOCH)
+    //         .unwrap()
+    //         .as_secs();
 
-        if header.timestamp < now {
-            header.timestamp = now;
-        }
-        Ok(())
-    }
+    //     if header.timestamp < now {
+    //         header.timestamp = now;
+    //     }
+    //     Ok(())
+    // }
 
     fn pre_validate_block(&self, block: &Block, state: &dyn BlockReader) -> Result<(), DuoError> {
         if !block.ommers.is_empty() {
@@ -409,9 +409,9 @@ impl Consensus for Clique {
     }
 }
 
-pub fn calculate_difficulty(snap: &snapshot::Snapshot, signer: Address) -> ethnum::U256 {
-    if snap.inturn(snap.number + 1, &signer) {
-        return DIFF_INTURN;
-    }
-    return DIFF_NOTURN;
-}
+// pub fn calculate_difficulty(snap: &snapshot::Snapshot, signer: Address) -> ethnum::U256 {
+//     if snap.inturn(snap.number + 1, &signer) {
+//         return DIFF_INTURN;
+//     }
+//     return DIFF_NOTURN;
+// }

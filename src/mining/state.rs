@@ -1,4 +1,5 @@
 use crate::consensus::Consensus;
+use crate::models::*;
 use crate::stages::*;
 use bytes::Bytes;
 use ethereum_types::Address;
@@ -9,6 +10,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
     mpsc, Arc,
 };
+
 fn default_extra_data() -> Bytes {
     // TODO replace by version string once we have versioned releases
     Bytes::from("Akula preview")
@@ -26,9 +28,10 @@ pub struct MiningConfig {
     pub ether_base: Address,
     pub secret_key: SecretKey,
     pub extra_data: Option<Bytes>,
-    pub consensus: Box<dyn Consensus>, //Arc<dyn Consensus>,
+    pub consensus: Box<dyn Consensus>,
     pub dao_fork_block: Option<BigInt>,
     pub dao_fork_support: bool,
+    pub gas_limit: u64,
 }
 
 impl MiningConfig {
@@ -46,7 +49,7 @@ impl MiningConfig {
 
 #[derive(Debug)]
 pub struct MiningStatus {
-    pub pending_result_ch: mpsc::Sender<MiningBlock>,
-    pub mining_result_ch: mpsc::Sender<MiningBlock>,
-    pub mining_result_pos_ch: mpsc::Sender<MiningBlock>,
+    pub pending_result_ch: mpsc::Sender<Block>,
+    pub mining_result_ch: mpsc::Sender<Block>,
+    pub mining_result_pos_ch: mpsc::Sender<Block>,
 }

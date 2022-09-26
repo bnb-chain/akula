@@ -3,7 +3,7 @@ use akula::{
     binutil::AkulaDataDir,
     consensus::{engine_factory, Consensus, ForkChoiceMode},
     kv::tables::CHAINDATA_TABLES,
-    mining::state::MiningConfig,
+    mining::state::*,
     models::*,
     p2p::node::NodeBuilder,
     rpc::{
@@ -27,6 +27,8 @@ use http::Uri;
 use jsonrpsee::{
     core::server::rpc_module::Methods, http_server::HttpServerBuilder, ws_server::WsServerBuilder,
 };
+use num_bigint::BigInt;
+use secp256k1::SecretKey;
 use std::{
     collections::HashSet,
     fs::OpenOptions,
@@ -507,7 +509,6 @@ fn main() -> anyhow::Result<()> {
                         exit_after_batch: opt.execution_exit_after_batch,
                         batch_until: None,
                         commit_every: None,
-                        mining_status: None,
                     },
                     false,
                 );
@@ -557,6 +558,7 @@ fn main() -> anyhow::Result<()> {
                         consensus: consens_config,
                         dao_fork_block: Some(BigInt::new(num_bigint::Sign::Plus, vec![])),
                         dao_fork_support: false,
+                        gas_limit: 30000000,
                     };
                     let mining_config_mutex = Arc::new(Mutex::new(config));
                     info!("Mining enabled");
@@ -579,7 +581,8 @@ fn main() -> anyhow::Result<()> {
                             nonce: H64::zero(),
                             base_fee_per_gas: None,
                         },
-                        uncles: vec![],
+                        ommers: vec![],
+                        transactions: vec![],
                     };
                     let mining_block_mutex = Arc::new(Mutex::new(mining_block));
                     let mining_status = MiningStatus::new();
@@ -595,34 +598,35 @@ fn main() -> anyhow::Result<()> {
                     );
 
                     staged_sync.push(
-                        Execution {
-                            max_block: opt.max_block,
-                            batch_size: opt.execution_batch_size.saturating_mul(1_000_000_000_u64),
-                            history_batch_size: opt
-                                .execution_history_batch_size
-                                .saturating_mul(1_000_000_000_u64),
-                            exit_after_batch: opt.execution_exit_after_batch,
-                            batch_until: None,
-                            commit_every: None,
+                        MiningExecBlock {
                             mining_status: Arc::clone(&mining_status_mutex),
+                            mining_block: Arc::clone(&mining_block_mutex),
+                            mining_config: Arc::clone(&mining_config_mutex),
+                            chain_spec: chainspec.clone(),
                         },
                         false,
                     );
 
                     staged_sync.push(HashState::new(etl_temp_dir.clone(), None), !opt.prune);
+
                     staged_sync.push_with_unwind_priority(
                         Interhashes::new(etl_temp_dir.clone(), None),
                         !opt.prune,
                         1,
                     );
                     info!("createBlock stage enabled");
+
+                    staged_sync.push(
+                        MiningFinishBlock {
+                            mining_status: Arc::clone(&mining_status_mutex),
+                            mining_block: Arc::clone(&mining_block_mutex),
+                            mining_config: Arc::clone(&mining_config_mutex),
+                            chain_spec: chainspec.clone(),
+                        },
+                        false,
+                    );
                 };
-                staged_sync.push(
-                    Finish {
-                        mining_status: Arc::clone(&mining_status_mutex),
-                    },
-                    !opt.prune,
-                );
+
                 info!("Running staged sync");
                 staged_sync.run(&db).await?;
 

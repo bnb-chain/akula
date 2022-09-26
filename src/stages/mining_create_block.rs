@@ -9,6 +9,7 @@ use crate::{
     },
     models::*,
     stagedsync::stage::*,
+    state::Buffer,
     StageId,
 };
 use anyhow::bail;
@@ -33,7 +34,8 @@ pub const DAOFORKEXTRARANG: i32 = 10;
 #[derive(Debug)]
 pub struct MiningBlock {
     pub header: BlockHeader,
-    pub uncles: Vec<BlockHeader>,
+    pub ommers: Vec<BlockHeader>,
+    pub transactions: Vec<MessageWithSignature>,
 }
 
 impl MiningStatus {
@@ -78,12 +80,13 @@ where
         let mut proposal = create_block_header(&parent_header, Arc::clone(&self.mining_config))?;
         debug!("Empty block created: {:?}", proposal);
 
-        if self.chain_spec.consensus.is_clique() {
-            Clique::prepare(
-                &mut self.mining_config.lock().unwrap().consensus,
-                tx,
-                &mut proposal,
-            );
+        let buffer = Buffer::new(tx, None);
+        if self.chain_spec.consensus.is_parlia() {
+            self.mining_config
+                .lock()
+                .unwrap()
+                .consensus
+                .prepare(&buffer, &mut proposal);
 
             // If we are care about TheDAO hard-fork check whether to override the extra-data or not
             if let Some(dao_block) = &self.mining_config.lock().unwrap().dao_fork_block {
@@ -104,8 +107,6 @@ where
                 };
             }
         }
-
-        // TODO: make uncles for proposal block
 
         self.mining_block.lock().unwrap().header = proposal;
         debug!("Miner created block with data");

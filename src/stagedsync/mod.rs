@@ -7,7 +7,7 @@ use crate::{
     mining::{state::MiningConfig, StagedMining},
     models::*,
     stagedsync::stage::*,
-    stages::{CreateBlock, ExecBlock, MiningBlock},
+    stages::*,
     StageId,
 };
 use bytes::Bytes;
