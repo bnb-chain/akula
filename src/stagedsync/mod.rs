@@ -71,6 +71,7 @@ where
     post_cycle_callback:
         Option<Box<dyn Fn(StagedSyncStatus) -> BoxFuture<'static, ()> + Send + 'static>>,
     staged_mining: Option<StagedMining<'db, E>>,
+    pub is_mining: bool,
 }
 
 impl<'db, E> Default for StagedSync<'db, E>
@@ -100,6 +101,7 @@ where
             delay_after_sync: None,
             post_cycle_callback: None,
             staged_mining: None,
+            is_mining: false,
         }
     }
 
@@ -251,7 +253,9 @@ where
                 }
 
                 bad_block = None;
-                tx.commit()?;
+                if !self.is_mining {
+                    tx.commit()?;
+                }
             } else {
                 // Now that we're done with unwind, let's roll.
 
@@ -422,7 +426,9 @@ where
                                 {
                                     // Commit and restart transaction.
                                     debug!("Commit requested");
-                                    tx.commit()?;
+                                    if !self.is_mining {
+                                        tx.commit()?;
+                                    }
                                     debug!("Commit complete");
                                     tx = db.begin_mutable()?;
                                 }
@@ -540,8 +546,9 @@ where
                         }
                     }
                 }
-
-                tx.commit()?;
+                if !self.is_mining {
+                    tx.commit()?;
+                }
 
                 let last_block = receipts.last().map_or(BlockNumber(0), |r| r.progress);
 
@@ -552,14 +559,6 @@ where
                         stage_execution_receipts: receipts,
                     })
                     .await
-                }
-
-                if let Some(mining) = &mut self.staged_mining {
-                    let mut tx = db.begin_mutable()?;
-                    async {
-                        mining.run(&mut tx, last_block).await;
-                    }
-                    .await;
                 }
 
                 if let Some(minimum_progress) = minimum_progress {

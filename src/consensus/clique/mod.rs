@@ -1,13 +1,13 @@
 // pub mod clique_util;
-// pub mod snapshot;
+pub mod clique_snapshot;
 pub mod state;
 pub use state::CliqueState;
-
+pub mod clique_util;
 use crate::{
     consensus::{
-        fork_choice_graph::ForkChoiceGraph, state::CliqueBlock, CliqueError, Consensus,
-        ConsensusEngineBase, ConsensusState, DuoError, DuoError::Validation, FinalizationChange,
-        ForkChoiceMode, ValidationError, *,
+        clique_snapshot::CliqueSnapshot, fork_choice_graph::ForkChoiceGraph, state::CliqueBlock,
+        CliqueError, Consensus, ConsensusEngineBase, ConsensusState, DuoError,
+        DuoError::Validation, FinalizationChange, ForkChoiceMode, ValidationError,
     },
     kv::{mdbx::*, tables},
     models::{
@@ -183,7 +183,7 @@ pub struct Clique {
     state: Mutex<CliqueState>,
     period: u64,
     fork_choice_graph: Arc<Mutex<ForkChoiceGraph>>,
-    recent_snaps: RwLock<LruCache<H256, Snapshot>>,
+    recent_snaps: RwLock<LruCache<H256, CliqueSnapshot>>,
     /// Ethereum address of the signing key.
     signer: Address,
 }
@@ -275,7 +275,7 @@ pub fn is_clique(engine: &str) -> bool {
 }
 
 impl Consensus for Clique {
-    // Preparing all the consensus fields of the header for running the transactions on top.
+    /// Preparing all the consensus fields of the header for running the transactions on top.
     // fn prepare<E>(
     //     &mut self,
     //     state: &dyn StateReader,
@@ -409,7 +409,7 @@ impl Consensus for Clique {
     }
 }
 
-// pub fn calculate_difficulty(snap: &snapshot::Snapshot, signer: Address) -> ethnum::U256 {
+// pub fn calculate_difficulty(snap: &Snapshot, signer: Address) -> ethnum::U256 {
 //     if snap.inturn(snap.number + 1, &signer) {
 //         return DIFF_INTURN;
 //     }

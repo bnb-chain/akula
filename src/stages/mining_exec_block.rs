@@ -56,25 +56,6 @@ where
         STAGE_EXEC_BLOCK
     }
 
-    // ApplyDAOHardFork modifies the state database according to the DAO hard-fork
-    // rules, transferring all balances of a set of DAO accounts to a single refund
-    // contract.
-    // fn apply_dao_hardfork(&self, tx: &'tx mut MdbxTransaction<'db, RW, E>) -> Result<_, StageError>
-    // where
-    //     'db: 'tx,
-    // {
-    //     //TODO!! Retrieve the contract to refund balances into
-    //     // if !statedb.Exist(params.DAORefundContract) {
-    //     // 	statedb.CreateAccount(params.DAORefundContract, false)
-    //     // }
-
-    //     // // Move every DAO account and extra-balance account funds into the refund contract
-    //     // for _, addr := range params.DAODrainList() {
-    //     // 	statedb.AddBalance(params.DAORefundContract, statedb.GetBalance(addr))
-    //     // 	statedb.SetBalance(addr, new(uint256.Int))
-    //     // }
-    // }
-
     async fn execute<'tx>(
         &mut self,
         tx: &'tx mut MdbxTransaction<'db, RW, E>,
@@ -90,19 +71,19 @@ where
         let current = &self.mining_block.lock().unwrap();
         if self.chain_spec.consensus.is_parlia() {
             // If we are care about TheDAO hard-fork check whether to override the extra-data or not
-            // if self.config.lock().unwrap().dao_fork_support
-            //     && self
-            //         .config
-            //         .lock()
-            //         .unwrap()
-            //         .dao_fork_block
-            //         .clone()
-            //         .unwrap()
-            //         .to_u64()
-            //         == (current.header.number.to_u64())
-            // {
-            //     // TODO: Apply for DAO Fork!
-            // }
+            if self.mining_config.lock().unwrap().dao_fork_support
+                && self
+                    .mining_config
+                    .lock()
+                    .unwrap()
+                    .dao_fork_block
+                    .clone()
+                    .unwrap()
+                    .to_u64()
+                    == (current.header.number.to_u64())
+            {
+                // TODO: Apply for DAO Fork!
+            }
             let mut buffer = Buffer::new(tx, None);
             let mut state = IntraBlockState::new(&mut buffer);
             contract_upgrade::upgrade_build_in_system_contract(
@@ -207,7 +188,7 @@ fn execute_mining_blocks<E: EnvironmentKind>(
             c.append_dup(header.number, CallTraceSetEntry { address, from, to })?;
         }
     }
-
+    buffer.write_to_db()?;
     Ok(block_number)
 }
 
@@ -224,3 +205,23 @@ where
         _ => bail!("Expected header at block height {} not found.", number.0),
     })
 }
+
+// ApplyDAOHardFork modifies the state database according to the DAO hard-fork
+// rules, transferring all balances of a set of DAO accounts to a single refund
+// contract.
+// fn apply_dao_hardfork(&self, tx: &'tx mut MdbxTransaction<'db, RW, E>) -> Result<_, StageError>
+// where
+//     'db: 'tx,
+// {
+//     // //TODO!! Retrieve the contract to refund balances into
+//     // if !statedb.Exist(params.DAORefundContract) {
+//     // 	statedb.CreateAccount(params.DAORefundContract, false)
+//     // }
+
+//     // // Move every DAO account and extra-balance account funds into the refund contract
+//     // for _, addr := range params.DAODrainList() {
+//     // 	statedb.AddBalance(params.DAORefundContract, statedb.GetBalance(addr))
+//     // 	statedb.SetBalance(addr, new(uint256.Int))
+//     // }
+//     Ok(())
+// }

@@ -1,17 +1,14 @@
 use crate::consensus::parlia::*;
 use crate::crypto;
-use ethereum_types::{Public, H256};
-use primitive_types::H160;
-pub type Address = H160;
-
+use ethereum_types::Address;
+use ethereum_types::H256;
 use lazy_static::lazy_static;
-use sha3::{Digest, Keccak256};
-use std::{collections::HashSet, str::FromStr};
-// use ethereum::*;
 use secp256k1::{
     ecdsa::{RecoverableSignature, RecoveryId},
     Message as SecpMessage, SECP256K1,
 };
+use sha3::{Digest, Keccak256};
+use std::{collections::HashSet, str::FromStr};
 
 /// How many cache with recovered signatures.
 const RECOVERED_CREATOR_CACHE_NUM: usize = 4096;
@@ -143,8 +140,8 @@ pub fn find_ancient_header(
         result = db
             .read_parent_header(&result)?
             .ok_or_else(|| ParliaError::UnknownHeader {
-                number: BlockNumber(header.number.0 - 1),
-                hash: header.parent_hash,
+                number: result.number,
+                hash: result.hash(),
             })?;
     }
     Ok(result)

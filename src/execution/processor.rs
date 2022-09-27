@@ -56,7 +56,7 @@ where
     refund = min(refund, max_refund);
 
     let parlia_engine = block_spec.consensus.is_parlia();
-    if parlia_engine && is_system_transaction(message, &sender, &header.beneficiary){
+    if parlia_engine && is_system_transaction(message, &sender, &header.beneficiary) {
         refund = 0;
     }
 
@@ -92,12 +92,13 @@ where
     state.access_account(sender);
 
     let parlia_engine = block_spec.consensus.is_parlia();
-    let base_fee_per_gas = if parlia_engine && is_system_transaction(message, &sender, &beneficiary){
+    let base_fee_per_gas = if parlia_engine && is_system_transaction(message, &sender, &beneficiary)
+    {
         U256::ZERO
-    } else{
+    } else {
         header.base_fee_per_gas.unwrap_or(U256::ZERO)
     };
-    
+
     if parlia_engine && is_system_transaction(message, &sender, &beneficiary) {
         let system_balance = state.get_balance(*SYSTEM_ACCOUNT)?;
         if system_balance != 0 {
@@ -174,7 +175,7 @@ where
     if rewards > 0 {
         if parlia_engine {
             state.add_to_balance(*SYSTEM_ACCOUNT, rewards)?;
-        }else{
+        } else {
             state.add_to_balance(beneficiary, rewards)?;
         }
     }
@@ -291,10 +292,12 @@ where
             ));
 
         // if not parlia or not system_transaction in parlia, check gas
-        if !self.block_spec.consensus.is_parlia() || !is_system_transaction(message, &sender, &self.header.beneficiary) {
+        if !self.block_spec.consensus.is_parlia()
+            || !is_system_transaction(message, &sender, &self.header.beneficiary)
+        {
             // See YP, Eq (57) in Section 6.2 "Execution"
-            let v0 =
-                max_gas_cost + U512::from(ethereum_types::U256::from(message.value().to_be_bytes()));
+            let v0 = max_gas_cost
+                + U512::from(ethereum_types::U256::from(message.value().to_be_bytes()));
             let available_balance =
                 ethereum_types::U256::from(self.state.get_balance(sender)?.to_be_bytes()).into();
             if available_balance < v0 {
@@ -362,7 +365,9 @@ where
                 return Ok(receipts);
             }
 
-            if parlia_engine && is_system_transaction(&txn.message, &txn.sender, &self.header.beneficiary) {
+            if parlia_engine
+                && is_system_transaction(&txn.message, &txn.sender, &self.header.beneficiary)
+            {
                 system_txs.push(txn);
                 continue;
             }
@@ -417,7 +422,10 @@ where
     }
 
     pub fn execute_and_check_block(&mut self) -> Result<Vec<Receipt>, DuoError> {
-        self.engine.new_block(self.header, ConsensusNewBlockState::handle(self.chain_spec, self.header, &mut self.state)?)?;
+        self.engine.new_block(
+            self.header,
+            ConsensusNewBlockState::handle(self.chain_spec, self.header, &mut self.state)?,
+        )?;
         let receipts = self.execute_block_no_post_validation()?;
 
         let gas_used = receipts.last().map(|r| r.cumulative_gas_used).unwrap_or(0);

@@ -1,7 +1,9 @@
 #![allow(unreachable_code)]
 
 use crate::{
-    consensus::{engine_factory, fork_choice_graph::ForkChoiceGraph, Consensus, ForkChoiceMode},
+    consensus::{
+        engine_factory, fork_choice_graph::ForkChoiceGraph, Consensus, DuoError, ForkChoiceMode,
+    },
     kv::{mdbx::*, tables},
     models::{BlockHeader, BlockNumber, H256},
     p2p::{
@@ -732,8 +734,7 @@ impl HeaderDownload {
                 warn!("Rejected bad block header ({hash:?}) when create snap err: {e:?}");
                 return Err((i.saturating_sub(1), *hash));
             }
-            if let Err(e) = engine.validate_block_header(header, parent_header, false)
-            {
+            if let Err(e) = engine.validate_block_header(header, parent_header, false) {
                 warn!("Rejected bad block header ({hash:?}) for reason {e:?}: {header:?}");
                 return Err((i.saturating_sub(1), *hash));
             }

@@ -22,7 +22,7 @@ pub struct BlockHeader {
     pub extra_data: Bytes,
     pub mix_hash: H256,
     pub nonce: H64,
-    
+
     pub base_fee_per_gas: Option<U256>,
 }
 

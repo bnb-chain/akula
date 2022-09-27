@@ -13,6 +13,7 @@ use crate::{
         state::*,
     },
     models::*,
+    p2p::node::Node,
     res::chainspec,
     stagedsync::stage::*,
     state::IntraBlockState,
@@ -26,6 +27,7 @@ use hex::FromHex;
 use mdbx::{EnvironmentKind, RW};
 use num_bigint::{BigInt, Sign};
 use num_traits::ToPrimitive;
+use rand::Rng;
 use std::{
     cmp::Ordering,
     sync::{Arc, Mutex},
@@ -45,6 +47,7 @@ pub struct MiningFinishBlock {
     pub mining_block: Arc<Mutex<MiningBlock>>,
     pub mining_config: Arc<Mutex<MiningConfig>>,
     pub chain_spec: ChainSpec,
+    pub node: Arc<Node>,
 }
 
 #[async_trait]
@@ -69,7 +72,6 @@ where
             .map(|(_, b)| b)
             .unwrap_or(BlockNumber(0));
 
-        //let current = Arc::clone(&self.mining_block);
         let header = self.mining_block.lock().unwrap().header.clone();
         let transactions = self.mining_block.lock().unwrap().transactions.clone();
         let ommers = self.mining_block.lock().unwrap().ommers.clone();
@@ -99,6 +101,15 @@ where
             .send(block.clone())
             .unwrap();
 
+        // TODO: Seal block!
+
+        // Broadcast the mined block to other p2p nodes.
+        let sent_request_id = rand::thread_rng().gen();
+        self.node.send_new_mining_block(
+            sent_request_id,
+            block.clone(),
+            block.clone().header.difficulty,
+        );
         Ok(ExecOutput::Progress {
             stage_progress: prev_stage,
             done: true,

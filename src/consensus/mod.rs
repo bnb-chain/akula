@@ -1,7 +1,7 @@
-mod base;
-mod beacon;
-mod blockchain;
-mod clique;
+pub mod base;
+pub mod beacon;
+pub mod blockchain;
+pub mod clique;
 pub mod fork_choice_graph;
 pub mod parlia;
 
@@ -227,6 +227,21 @@ pub enum CliqueError {
     WrongHeaderExtraSignersLen {
         expected: usize,
         got: usize,
+    },
+    SnapFutureBlock {
+        expect: BlockNumber,
+        got: BlockNumber,
+    },
+    SnapNotFound {
+        number: BlockNumber,
+        hash: H256,
+    },
+    SignerUnauthorized {
+        number: BlockNumber,
+        signer: Address,
+    },
+    SignerOverLimit {
+        signer: Address,
     },
 }
 

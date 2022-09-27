@@ -31,6 +31,7 @@ use std::{collections::BTreeSet, time::SystemTime};
 use tracing::*;
 use TransactionAction;
 
+pub const EXTRA_VANITY: usize = 32;
 /// Fixed number of extra-data prefix bytes reserved for signer vanity
 pub const VANITY_LENGTH: usize = 32;
 /// Fixed number of extra-data suffix bytes reserved for signer signature
@@ -56,7 +57,7 @@ pub const SNAP_CACHE_NUM: usize = 2048;
 pub const CHECKPOINT_INTERVAL: u64 = 1024;
 /// Percentage to system reward.
 pub const SYSTEM_REWARD_PERCENT: usize = 4;
-pub const NEXT_FORK_HASH_SIZE : usize = 4;
+pub const NEXT_FORK_HASH_SIZE: usize = 4;
 
 const MAX_SYSTEM_REWARD: &str = "0x56bc75e2d63100000";
 const INIT_TX_NUM: usize = 7;
@@ -150,8 +151,12 @@ impl Consensus for Parlia {
         let snap = self.query_snap(_header.number.0 - 1, _header.parent_hash)?;
         _header.difficulty = calculate_difficulty(&snap, &_header.beneficiary);
 
-        if _header.extra_data.len() < VANITY_LENGTH - NEXT_FORK_HASH_SIZE{
-            
+        if _header.extra_data.len() < VANITY_LENGTH - NEXT_FORK_HASH_SIZE {
+            let mut extra = _header.extra_data.clone().slice(..).to_vec();
+            while extra.len() < EXTRA_VANITY {
+                extra.push(0);
+            }
+            _header.extra_data = Bytes::copy_from_slice(extra.clone().as_slice());
         }
 
         Ok(())
@@ -221,9 +226,9 @@ impl Consensus for Parlia {
             }
         }
         let inturn_proposer = snap.inturn(&proposer);
-        if inturn_proposer && header.difficulty != DIFF_INTURN {
-            return Err(ValidationError::WrongDifficulty.into());
-        } else if !inturn_proposer && header.difficulty != DIFF_NOTURN {
+        if inturn_proposer && header.difficulty != DIFF_INTURN
+            || (!inturn_proposer && header.difficulty != DIFF_NOTURN)
+        {
             return Err(ValidationError::WrongDifficulty.into());
         }
         Ok(())

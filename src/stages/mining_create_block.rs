@@ -14,6 +14,7 @@ use crate::{
 };
 use anyhow::bail;
 use async_trait::async_trait;
+use bytes::Bytes;
 use cipher::typenum::int;
 use hex::FromHex;
 use mdbx::{EnvironmentKind, RW};
@@ -73,6 +74,30 @@ where
     where
         'db: 'tx,
     {
+        let mining_block = MiningBlock {
+            header: BlockHeader {
+                parent_hash: H256::zero(),
+                ommers_hash: H256::zero(),
+                beneficiary: Address::zero(),
+                state_root: H256::zero(),
+                transactions_root: H256::zero(),
+                receipts_root: H256::zero(),
+                logs_bloom: Bloom::zero(),
+                difficulty: U256::ZERO,
+                number: BlockNumber(0),
+                gas_limit: 0,
+                gas_used: 0,
+                timestamp: 0,
+                extra_data: Bytes::new(),
+                mix_hash: H256::zero(),
+                nonce: H64::zero(),
+                base_fee_per_gas: None,
+            },
+            ommers: vec![],
+            transactions: vec![],
+        };
+        let mining_block_mutex = Arc::new(Mutex::new(mining_block));
+        self.mining_block = Arc::clone(&mining_block_mutex);
         let parent_number = input.stage_progress.unwrap();
         let parent_header = get_header(tx, parent_number)?;
 
