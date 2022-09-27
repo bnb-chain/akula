@@ -166,6 +166,14 @@ impl ChainSpec {
         is_on_forked(self.upgrades.gibbs, number)
     }
 
+    pub fn is_on_boneh(&self, number: &BlockNumber) -> bool {
+        is_on_forked(self.upgrades.boneh, number)
+    }
+
+    pub fn is_on_lynn(&self, number: &BlockNumber) -> bool {
+        is_on_forked(self.upgrades.lynn, number)
+    }
+
     pub fn is_ramanujan(&self, number: &BlockNumber) -> bool {
         is_forked(self.upgrades.ramanujan, number)
     }
@@ -188,6 +196,14 @@ impl ChainSpec {
 
     pub fn is_gibbs(&self, number: &BlockNumber) -> bool {
         is_forked(self.upgrades.gibbs, number)
+    }
+
+    pub fn is_boneh(&self, number: &BlockNumber) -> bool {
+        is_forked(self.upgrades.boneh, number)
+    }
+
+    pub fn is_lynn(&self, number: &BlockNumber) -> bool {
+        is_forked(self.upgrades.lynn, number)
     }
 }
 
@@ -416,6 +432,18 @@ pub struct Upgrades {
         with = "::serde_with::rust::unwrap_or_skip"
     )]
     pub gibbs: Option<BlockNumber>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "::serde_with::rust::unwrap_or_skip"
+    )]
+    pub boneh: Option<BlockNumber>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "::serde_with::rust::unwrap_or_skip"
+    )]
+    pub lynn: Option<BlockNumber>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -602,7 +630,9 @@ mod tests {
                     mirrorsync: None,
                     bruno: None,
                     euler: None,
-                    gibbs: None
+                    gibbs: None,
+                    boneh: None,
+                    lynn: None
                 },
                 params: Params {
                     chain_id: ChainId(4),
