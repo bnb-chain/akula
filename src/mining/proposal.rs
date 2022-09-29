@@ -96,7 +96,7 @@ pub fn create_block_header(
 }
 
 pub fn calc_gas_limit(parent_gas_limit: u64, desired_limit: u64) -> u64 {
-    let mut delta = parent_gas_limit / GASLIMITBOUNDDIVISOR - 1;
+    let delta = parent_gas_limit / GASLIMITBOUNDDIVISOR - 1;
     let mut limit = parent_gas_limit;
     let mut desired_limit = desired_limit;
     if desired_limit < MINGASLIMIT {

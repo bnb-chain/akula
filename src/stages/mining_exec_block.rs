@@ -90,7 +90,7 @@ where
                 &self.chain_spec,
                 &self.mining_block.lock().unwrap().header.number,
                 &mut state,
-            );
+            )?;
         }
 
         // TODO: Add transaction to mining block after txpool enabled!
@@ -102,7 +102,7 @@ where
             input.first_started_at,
         )?;
 
-        STAGE_EXEC_BLOCK.save_progress(tx, current.header.number);
+        STAGE_EXEC_BLOCK.save_progress(tx, current.header.number)?;
 
         Ok(ExecOutput::Progress {
             stage_progress: prev_progress,

@@ -105,11 +105,13 @@ where
 
         // Broadcast the mined block to other p2p nodes.
         let sent_request_id = rand::thread_rng().gen();
-        self.node.send_new_mining_block(
-            sent_request_id,
-            block.clone(),
-            block.clone().header.difficulty,
-        );
+        self.node
+            .send_new_mining_block(
+                sent_request_id,
+                block.clone(),
+                block.clone().header.difficulty,
+            )
+            .await;
         Ok(ExecOutput::Progress {
             stage_progress: prev_stage,
             done: true,
