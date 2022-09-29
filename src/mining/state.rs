@@ -1,6 +1,4 @@
-use crate::consensus::Consensus;
-use crate::models::*;
-use crate::stages::*;
+use crate::{consensus::Consensus, models::*, stages::*};
 use bytes::Bytes;
 use ethereum_types::Address;
 use num_bigint::BigInt;

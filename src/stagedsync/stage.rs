@@ -1,6 +1,5 @@
-use crate::consensus::DuoError;
 use crate::{
-    consensus::ValidationError,
+    consensus::{DuoError, ValidationError},
     kv::{mdbx::*, tables},
     models::*,
 };

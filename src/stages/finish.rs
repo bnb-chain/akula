@@ -1,10 +1,4 @@
-use crate::{
-    kv::mdbx::*,
-    mining::state::*,
-    models::*,
-    stagedsync::{stage::*, stage::*},
-    StageId,
-};
+use crate::{kv::mdbx::*, mining::state::*, models::*, stagedsync::stage::*, StageId};
 use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
 

@@ -1,6 +1,5 @@
 use crate::{
-    consensus::clique::*,
-    consensus::SnapDB,
+    consensus::{clique::*, SnapDB},
     kv::{mdbx::*, tables, MdbxWithDirHandle},
     p2p::types::GetBlockHeadersParams,
     HeaderReader,

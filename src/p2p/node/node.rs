@@ -12,6 +12,7 @@ use ethereum_interfaces::{
     sentry::{sentry_client::SentryClient, PeerMinBlockRequest, SentPeers},
 };
 use ethereum_types::H512;
+use ethnum::U256;
 use fastrlp::*;
 use futures::stream::FuturesUnordered;
 use hashlink::LruCache;
@@ -28,7 +29,6 @@ use tokio::sync::{watch, Notify};
 use tokio_stream::StreamExt;
 use tonic::transport::Channel;
 use tracing::*;
-use ethnum::U256;
 pub type Sentry = SentryClient<Channel>;
 pub type SentryId = usize;
 

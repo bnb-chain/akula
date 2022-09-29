@@ -19,8 +19,7 @@ use crate::{
     state::IntraBlockState,
     Buffer, StageId,
 };
-use anyhow::bail;
-use anyhow::format_err;
+use anyhow::{bail, format_err};
 use async_trait::async_trait;
 use cipher::typenum::int;
 use hex::FromHex;

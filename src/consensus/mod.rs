@@ -18,12 +18,12 @@ use derive_more::{Display, From};
 use ethnum::u256;
 use mdbx::{EnvironmentKind, TransactionKind};
 use parking_lot::Mutex;
-use std::time::SystemTimeError;
 use std::{
     collections::BTreeSet,
     fmt::{Debug, Display, Formatter},
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     sync::Arc,
+    time::SystemTimeError,
 };
 use crate::kv::tables;
 use tokio::sync::watch;

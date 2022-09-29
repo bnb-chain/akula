@@ -1,12 +1,13 @@
 use super::*;
-use crate::consensus::DuoError;
-use crate::models::{Address, BlockNumber, ChainSpec};
-use crate::{HeaderReader, IntraBlockState, StateReader};
+use crate::{
+    consensus::DuoError,
+    models::{Address, BlockNumber, ChainSpec},
+    HeaderReader, IntraBlockState, StateReader,
+};
 use bytes::Bytes;
 use lazy_static::lazy_static;
 use rustc_hex::FromHex;
-use std::collections::HashMap;
-use std::str::FromStr;
+use std::{collections::HashMap, str::FromStr};
 
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
 pub struct UpgradeConfig {

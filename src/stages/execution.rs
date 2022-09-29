@@ -18,8 +18,10 @@ use crate::{
 };
 use anyhow::format_err;
 use async_trait::async_trait;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::{
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 use tracing::*;
 
 pub const EXECUTION: StageId = StageId("Execution");
