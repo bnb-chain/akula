@@ -1,13 +1,18 @@
-use crate::{consensus::parlia::*, crypto};
-use ethereum::*;
-use ethereum_types::{Address, H256};
+use crate::consensus::parlia::*;
+use ethereum_types::H256;
 use lazy_static::lazy_static;
+use std::{
+    collections::{HashSet},
+    str::FromStr,
+};
+use ethereum_types::Address;
+use crate::crypto;
+use sha3::{Digest, Keccak256};
+use ethereum::*;
 use secp256k1::{
     ecdsa::{RecoverableSignature, RecoveryId},
     Message as SecpMessage, SECP256K1,
 };
-use sha3::{Digest, Keccak256};
-use std::{collections::HashSet, str::FromStr};
 
 /// How many cache with recovered signatures.
 const RECOVERED_CREATOR_CACHE_NUM: usize = 4096;
@@ -65,9 +70,8 @@ pub fn parse_epoch_validators(bytes: &[u8]) -> Result<Vec<Address>, DuoError> {
     if bytes.len() % ADDRESS_LENGTH != 0 {
         return Err(ParliaError::WrongHeaderExtraSignersLen {
             expected: 0,
-            got: bytes.len() % ADDRESS_LENGTH,
-        }
-        .into());
+            got: bytes.len() % ADDRESS_LENGTH
+        }.into());
     }
     let n = bytes.len() / ADDRESS_LENGTH;
     let mut res = BTreeSet::new();
@@ -91,9 +95,8 @@ pub fn recover_creator(header: &BlockHeader, chain_id: ChainId) -> Result<Addres
     if extra_data.len() < VANITY_LENGTH + SIGNATURE_LENGTH {
         return Err(ParliaError::WrongHeaderExtraLen {
             expected: VANITY_LENGTH + SIGNATURE_LENGTH,
-            got: extra_data.len(),
-        }
-        .into());
+            got: extra_data.len()
+        }.into());
     }
     let signature_offset = header.extra_data.len() - SIGNATURE_LENGTH;
 
@@ -103,8 +106,7 @@ pub fn recover_creator(header: &BlockHeader, chain_id: ChainId) -> Result<Addres
 
     let mut sig_hash_header = header.clone();
     sig_hash_header.extra_data = Bytes::copy_from_slice(&header.extra_data[..signature_offset]);
-    let message =
-        &SecpMessage::from_slice(sig_hash_header.hash_with_chain_id(chain_id.0).as_bytes())?;
+    let message = &SecpMessage::from_slice(sig_hash_header.hash_with_chain_id(chain_id.0).as_bytes())?;
 
     let public = &SECP256K1.recover_ecdsa(message, &signature)?;
     let address_slice = &Keccak256::digest(&public.serialize_uncompressed()[1..])[12..];
@@ -120,8 +122,7 @@ pub fn is_similar_tx(actual: &Message, expect: &Message) -> bool {
         && actual.max_fee_per_gas() == expect.max_fee_per_gas()
         && actual.value() == expect.value()
         && actual.input() == expect.input()
-        && actual.action() == expect.action()
-    {
+        && actual.action() == expect.action() {
         true
     } else {
         false
@@ -136,9 +137,8 @@ pub fn find_ancient_header(
 ) -> Result<BlockHeader, DuoError> {
     let mut result = header.clone();
     for _ in 0..count {
-        result = db
-            .read_parent_header(&result)?
-            .ok_or_else(|| ParliaError::UnknownHeader {
+        result = db.read_parent_header(&result)?
+            .ok_or_else(|| ParliaError::UnknownHeader{
                 number: result.number,
                 hash: result.hash(),
             })?;
@@ -148,9 +148,9 @@ pub fn find_ancient_header(
 
 #[cfg(test)]
 mod tests {
+    use hex_literal::hex;
     use super::*;
     use ethnum::u256;
-    use hex_literal::hex;
 
     #[test]
     fn test_bsc_creator_recover() {
@@ -173,14 +173,8 @@ mod tests {
             base_fee_per_gas: None
         };
         info!("test header {}:{}", header.number.0, header.hash());
-        assert_eq!(
-            header.hash(),
-            hex!("04055304e432294a65ff31069c4d3092ff8b58f009cdb50eba5351e0332ad0f6").into()
-        );
+        assert_eq!(header.hash(), hex!("04055304e432294a65ff31069c4d3092ff8b58f009cdb50eba5351e0332ad0f6").into());
         let addr = recover_creator(header, ChainId(56_u64)).unwrap();
-        assert_eq!(
-            addr,
-            Address::from_str("2a7cdd959bfe8d9487b2a43b33565295a698f7e2").unwrap()
-        );
+        assert_eq!(addr, Address::from_str("2a7cdd959bfe8d9487b2a43b33565295a698f7e2").unwrap());
     }
 }

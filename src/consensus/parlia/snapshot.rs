@@ -1,10 +1,13 @@
-use crate::consensus::{
-    parlia::{util, SIGNATURE_LENGTH, VANITY_LENGTH},
-    *,
+use crate::{
+    consensus::{
+        parlia::{util, SIGNATURE_LENGTH, VANITY_LENGTH},*
+    },
 };
-use ethereum_types::Address;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::{
+    collections::{BTreeMap},
+};
+use ethereum_types::{Address};
 
 /// Snapshot, record validators and proposal from epoch chg.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -26,14 +29,14 @@ impl Snapshot {
         validators: Vec<Address>,
         block_number: u64,
         block_hash: H256,
-        epoch_num: u64,
+        epoch_num: u64
     ) -> Self {
         Snapshot {
             block_number,
             block_hash,
             epoch_num,
             validators,
-            recent_proposers: Default::default(),
+            recent_proposers: Default::default()
         }
     }
 
@@ -45,11 +48,10 @@ impl Snapshot {
     ) -> Result<Snapshot, DuoError> {
         let block_number = header.number.0;
         if self.block_number + 1 != block_number {
-            return Err(ParliaError::SnapFutureBlock {
+            return Err(ParliaError::SnapFutureBlock{
                 expect: BlockNumber(self.block_number + 1),
                 got: BlockNumber(block_number),
-            }
-            .into());
+            }.into());
         }
 
         let mut snap = self.clone();
@@ -65,16 +67,13 @@ impl Snapshot {
             return Err(ParliaError::SignerUnauthorized {
                 number: BlockNumber(block_number),
                 signer: proposer,
-            }
-            .into());
+            }.into());
         }
-        if snap
-            .recent_proposers
-            .iter()
-            .find(|(_, addr)| **addr == proposer)
-            .is_some()
-        {
-            return Err(ParliaError::SignerOverLimit { signer: proposer }.into());
+        if snap.recent_proposers.iter()
+            .find(|(_, addr)| **addr == proposer).is_some() {
+            return Err(ParliaError::SignerOverLimit {
+                signer: proposer
+            }.into());
         }
         snap.recent_proposers.insert(block_number, proposer);
 
@@ -82,16 +81,13 @@ impl Snapshot {
         if block_number > 0 && block_number % snap.epoch_num == check_epoch_num {
             let epoch_header = util::find_ancient_header(db, header, check_epoch_num)?;
             let epoch_extra = epoch_header.extra_data;
-            let next_validators = util::parse_epoch_validators(
-                &epoch_extra[VANITY_LENGTH..(epoch_extra.len() - SIGNATURE_LENGTH)],
-            )?;
+            let next_validators = util::parse_epoch_validators(&epoch_extra[VANITY_LENGTH..(epoch_extra.len() - SIGNATURE_LENGTH)])?;
 
             let pre_limit = snap.validators.len() / 2 + 1;
             let next_limit = next_validators.len() / 2 + 1;
             if next_limit < pre_limit {
                 for i in 0..(pre_limit - next_limit) {
-                    snap.recent_proposers
-                        .remove(&(block_number - ((next_limit + i) as u64)));
+                    snap.recent_proposers.remove(&(block_number - ((next_limit + i) as u64)));
                 }
             }
             snap.validators = next_validators;

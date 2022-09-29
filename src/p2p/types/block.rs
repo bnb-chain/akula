@@ -1,4 +1,4 @@
-use crate::models::{Block, BlockNumber, H256, U256};
+use crate::models::{Block, BlockNumber, H256};
 use fastrlp::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, RlpEncodable, RlpDecodable)]
@@ -51,5 +51,5 @@ pub struct BlockHashAndNumber {
 #[derive(Debug, Clone, PartialEq, Eq, RlpEncodable, RlpDecodable)]
 pub struct NewBlock {
     pub block: Block,
-    pub total_difficulty: U256,
+    pub total_difficulty: u128,
 }

@@ -393,9 +393,7 @@ where
 
     let mut rewards = vec![];
     if let Some(ommers) = finalization {
-        for change in
-            engine_factory(None, chain_spec, None)?.finalize(&header, &ommers, None, &buffer)?
-        {
+        for change in engine_factory(None, chain_spec, None)?.finalize(&header, &ommers, None, &buffer)? {
             match change {
                 crate::consensus::FinalizationChange::Reward {
                     address,

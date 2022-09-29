@@ -707,9 +707,8 @@ impl RngSource {
         if n <= 0 {
             panic!("invalid argument to int63n")
         }
-        if n & (n - 1) == 0 {
-            // n is power of two, can mask
-            return self.int63() & (n - 1);
+        if n & (n-1) == 0 { // n is power of two, can mask
+            return self.int63() & (n - 1)
         }
         let (tmp, _) = (1_i64 << 63).overflowing_sub(1);
         let (max, _) = tmp.overflowing_sub((1_i64 << 63) % n);
@@ -749,9 +748,9 @@ pub trait Shuffle {
 /// Shuffle pseudo-randomizes the order of elements.
 /// n is the number of elements. Shuffle panics if n < 0.
 /// swap swaps the elements with indexes i and j.
-impl<T> Shuffle for Vec<T> {
+impl<T> Shuffle for Vec<T>{
     fn shuffle(&mut self, rng: &mut RngSource) {
-        if self.len() == 0 {
+        if self.len() <= 0 {
             return;
         }
 
@@ -762,7 +761,7 @@ impl<T> Shuffle for Vec<T> {
         // generate even a minuscule percentage of the possible permutations.
         // Nevertheless, the right API signature accepts an int n, so handle it as best we can.
         let mut i = self.len() - 1;
-        while i > 1 << 31 - 1 - 1 {
+        while i > 1<<31-1-1 {
             let j = rng.int63n((i + 1) as i64) as usize;
             self.swap(i, j);
             i -= 1;

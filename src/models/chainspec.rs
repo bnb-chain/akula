@@ -1,11 +1,11 @@
 use crate::{consensus::BeneficiaryFunction, models::*, util::*};
 use bytes::Bytes;
 use serde::*;
-use sha3::{Digest, Keccak256};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     time::Duration,
 };
+use sha3::{Digest, Keccak256};
 
 type NodeUrl = String;
 
@@ -108,7 +108,7 @@ impl ChainSpec {
             self.upgrades.mirrorsync,
             self.upgrades.bruno,
             self.upgrades.euler,
-        ]
+            ]
         .iter()
         .copied()
         .flatten()
@@ -124,18 +124,11 @@ impl ChainSpec {
         forks
     }
 
-    pub fn try_get_code_with_hash(
-        &self,
-        block_number: BlockNumber,
-        address: &Address,
-    ) -> Option<(H256, Bytes)> {
+    pub fn try_get_code_with_hash(&self, block_number: BlockNumber, address: &Address) -> Option<(H256, Bytes)> {
         if let Some(contracts) = self.contracts.get(&block_number) {
             if let Some(contract) = contracts.get(&address) {
                 if let Contract::Contract { code } = contract {
-                    return Some((
-                        H256::from_slice(&Keccak256::digest(&code)[..]),
-                        code.clone(),
-                    ));
+                    return Some((H256::from_slice(&Keccak256::digest(&code)[..]), code.clone()));
                 }
             }
         }
@@ -195,8 +188,12 @@ impl ChainSpec {
 #[inline]
 pub fn is_forked(forked_op: Option<BlockNumber>, current: &BlockNumber) -> bool {
     match forked_op {
-        None => false,
-        Some(forked) => *current >= forked,
+        None => {
+            false
+        }
+        Some(forked) => {
+            *current >= forked
+        }
     }
 }
 
@@ -204,8 +201,12 @@ pub fn is_forked(forked_op: Option<BlockNumber>, current: &BlockNumber) -> bool 
 #[inline]
 pub fn is_on_forked(fork_op: Option<BlockNumber>, current: &BlockNumber) -> bool {
     match fork_op {
-        None => false,
-        Some(fork) => *current == fork,
+        None => {
+            false
+        }
+        Some(fork) => {
+            *current == fork
+        }
     }
 }
 
@@ -242,17 +243,13 @@ pub struct ConsensusParams {
 }
 
 impl ConsensusParams {
+
     pub fn is_parlia(&self) -> bool {
         match self.seal_verification {
-            SealVerificationParams::Parlia { .. } => true,
-            _ => false,
-        }
-    }
-
-    pub fn is_clique(&self) -> bool {
-        match self.seal_verification {
-            SealVerificationParams::Clique { .. } => true,
-            _ => false,
+            SealVerificationParams::Parlia { .. } => {
+                true
+            },
+            _ => false
         }
     }
 }

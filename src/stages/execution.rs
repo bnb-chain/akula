@@ -1,6 +1,6 @@
 use crate::{
     accessors,
-    consensus::*,
+    consensus::{engine_factory, CliqueError, ConsensusState, DuoError, ValidationError, DIFF_INTURN},
     execution::{
         analysis_cache::AnalysisCache,
         processor::ExecutionProcessor,
@@ -11,17 +11,13 @@ use crate::{
         mdbx::*,
         tables::{self, CallTraceSetEntry},
     },
-    mining::state::*,
     models::*,
     stagedsync::{format_duration, stage::*, util::*},
-    upsert_storage_value, Buffer, HeaderReader, StageId,
+    upsert_storage_value, Buffer, StageId,
 };
 use anyhow::format_err;
 use async_trait::async_trait;
-use std::{
-    sync::{Arc, Mutex},
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 use tracing::*;
 
 pub const EXECUTION: StageId = StageId("Execution");
@@ -87,7 +83,7 @@ fn execute_batch_of_blocks<E: EnvironmentKind>(
         }
 
         if chain_config.consensus.is_parlia() && header.difficulty != DIFF_INTURN {
-            consensus_engine.snapshot(tx, BlockNumber(header.number.0 - 1), header.parent_hash)?;
+            consensus_engine.snapshot(tx, BlockNumber(header.number.0-1), header.parent_hash)?;
         }
 
         let mut call_tracer = CallTracer::default();

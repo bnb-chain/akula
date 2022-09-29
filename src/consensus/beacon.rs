@@ -184,6 +184,7 @@ impl BeaconConsensus {
 }
 
 impl Consensus for BeaconConsensus {
+
     fn fork_choice_mode(&self) -> ForkChoiceMode {
         ForkChoiceMode::External(self.receiver.clone())
     }

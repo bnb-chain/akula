@@ -407,11 +407,10 @@ where
             if num_of_precompiled < precompiled::NUM_OF_PARLIA_ISTANBUL_CONTRACTS as u8 {
                 max_precompiled.0[ADDRESS_LENGTH - 1] = num_of_precompiled;
             } else {
-                max_precompiled.0[ADDRESS_LENGTH - 1] =
-                    precompiled::MAX_NUM_OF_PARLIA_PRECOMPILED as u8;
+                max_precompiled.0[ADDRESS_LENGTH - 1] = precompiled::MAX_NUM_OF_PARLIA_PRECOMPILED as u8;
             }
 
-            let num_of_contract = contract.0[ADDRESS_LENGTH - 1] as u8;
+            let num_of_contract= contract.0[ADDRESS_LENGTH -1] as u8;
             contract <= max_precompiled && precompiled::CONTRACTS.contains_key(&num_of_contract)
         } else {
             let mut max_precompiled = Address::zero();

@@ -3,7 +3,6 @@ use akula::{
     binutil::AkulaDataDir,
     consensus::{engine_factory, Consensus, ForkChoiceMode},
     kv::tables::CHAINDATA_TABLES,
-    mining::state::*,
     models::*,
     p2p::node::NodeBuilder,
     rpc::{
@@ -16,7 +15,6 @@ use akula::{
     version_string,
 };
 use anyhow::Context;
-use bytes::Bytes;
 use clap::Parser;
 use ethereum_jsonrpc::{
     ErigonApiServer, EthApiServer, NetApiServer, OtterscanApiServer, ParityApiServer,
@@ -27,21 +25,14 @@ use http::Uri;
 use jsonrpsee::{
     core::server::rpc_module::Methods, http_server::HttpServerBuilder, ws_server::WsServerBuilder,
 };
-use num_bigint::BigInt;
-use secp256k1::SecretKey;
 use std::{
-    collections::HashSet,
-    fs::OpenOptions,
-    future::pending,
-    io::Write,
-    net::SocketAddr,
-    panic,
-    sync::{Arc, Mutex},
-    time::Duration,
+    collections::HashSet, fs::OpenOptions, future::pending, io::Write, net::SocketAddr, panic,
+    sync::Arc, time::Duration,
 };
 use tokio::time::sleep;
 use tracing::*;
 use tracing_subscriber::prelude::*;
+
 #[derive(Parser)]
 #[clap(name = "Akula", about = "Next-generation Ethereum implementation.")]
 pub struct Opt {
@@ -132,22 +123,6 @@ pub struct Opt {
     #[clap(long, default_value = "127.0.0.1:8551")]
     pub engine_listen_address: SocketAddr,
 
-    /// Enable mining
-    #[clap(long)]
-    pub mine: bool,
-
-    /// Adress for block mining rewards
-    #[clap(long)]
-    pub mine_etherbase: Option<H160>,
-
-    /// Extra data for mined blocks
-    #[clap(long)]
-    pub mine_extradata: Option<String>,
-
-    /// Private key to sign mined blocks with
-    #[clap(long)]
-    pub mine_secretkey: Option<SecretKey>,
-
     /// Path to JWT secret file.
     #[clap(long)]
     pub jwt_secret_path: Option<ExpandedPathBuf>,
@@ -236,12 +211,6 @@ fn main() -> anyhow::Result<()> {
                     file.flush()?;
                 }
 
-                let consens_config = engine_factory(
-                    Some(db.clone()),
-                    chainspec.clone(),
-                    Some(opt.engine_listen_address),
-                )?;
-
                 let consensus: Arc<dyn Consensus> = engine_factory(
                     Some(db.clone()),
                     chainspec.clone(),
@@ -251,7 +220,7 @@ fn main() -> anyhow::Result<()> {
 
                 let network_id = chainspec.params.network_id;
 
-                let chain_config = ChainConfig::from(chainspec.clone());
+                let chain_config = ChainConfig::from(chainspec);
 
                 if !opt.no_rpc {
                     tokio::spawn({
@@ -374,25 +343,6 @@ fn main() -> anyhow::Result<()> {
                 });
 
                 // staged sync setup
-                let mut can_mine = true;
-                if opt.mine {
-                    if opt.exit_after_sync {
-                        warn!(
-                            "Conflicting options: --exit-after-sync is set, will not enable mining"
-                        );
-                        can_mine = false;
-                    }
-
-                    if opt.mine_etherbase.is_none() {
-                        warn!("Etherbase not set, will not enable mining");
-                        can_mine = false;
-                    }
-
-                    if opt.mine_secretkey.is_none() {
-                        warn!("No private key to sign blocks given, will not enable mining");
-                        can_mine = false;
-                    }
-                };
                 let mut staged_sync = stagedsync::StagedSync::new();
                 staged_sync.set_min_progress_to_commit_after_stage(if opt.prune {
                     u64::MAX
@@ -480,13 +430,7 @@ fn main() -> anyhow::Result<()> {
                     },
                     false,
                 );
-                staged_sync.push(
-                    BodyDownload {
-                        node: node.clone(),
-                        consensus,
-                    },
-                    false,
-                );
+                staged_sync.push(BodyDownload { node, consensus }, false);
                 staged_sync.push(TotalTxIndex, false);
                 staged_sync.push(
                     SenderRecovery {
@@ -535,7 +479,6 @@ fn main() -> anyhow::Result<()> {
                     },
                     !opt.prune,
                 );
-
                 staged_sync.push(
                     CallTraceIndex {
                         temp_dir: etl_temp_dir.clone(),
@@ -543,86 +486,7 @@ fn main() -> anyhow::Result<()> {
                     },
                     !opt.prune,
                 );
-
-                if can_mine {
-                    staged_sync.is_mining = true;
-                    let config = MiningConfig {
-                        enabled: true,
-                        ether_base: opt.mine_etherbase.unwrap().clone(),
-                        secret_key: opt.mine_secretkey.unwrap().clone(),
-                        extra_data: opt.mine_extradata.map(Bytes::from).clone(),
-                        consensus: consens_config,
-                        dao_fork_block: Some(BigInt::new(num_bigint::Sign::Plus, vec![])),
-                        dao_fork_support: false,
-                        gas_limit: 30000000,
-                    };
-                    let mining_config_mutex = Arc::new(Mutex::new(config));
-                    info!("Mining enabled");
-                    let mining_block = MiningBlock {
-                        header: BlockHeader {
-                            parent_hash: H256::zero(),
-                            ommers_hash: H256::zero(),
-                            beneficiary: Address::zero(),
-                            state_root: H256::zero(),
-                            transactions_root: H256::zero(),
-                            receipts_root: H256::zero(),
-                            logs_bloom: Bloom::zero(),
-                            difficulty: U256::ZERO,
-                            number: BlockNumber(0),
-                            gas_limit: 0,
-                            gas_used: 0,
-                            timestamp: 0,
-                            extra_data: Bytes::new(),
-                            mix_hash: H256::zero(),
-                            nonce: H64::zero(),
-                            base_fee_per_gas: None,
-                        },
-                        ommers: vec![],
-                        transactions: vec![],
-                    };
-                    let mining_block_mutex = Arc::new(Mutex::new(mining_block));
-                    let mining_status = MiningStatus::new();
-                    let mining_status_mutex = Arc::new(Mutex::new(mining_status));
-                    staged_sync.push(
-                        CreateBlock {
-                            mining_status: Arc::clone(&mining_status_mutex),
-                            mining_block: Arc::clone(&mining_block_mutex),
-                            mining_config: Arc::clone(&mining_config_mutex),
-                            chain_spec: chainspec.clone(),
-                        },
-                        false,
-                    );
-
-                    staged_sync.push(
-                        MiningExecBlock {
-                            mining_status: Arc::clone(&mining_status_mutex),
-                            mining_block: Arc::clone(&mining_block_mutex),
-                            mining_config: Arc::clone(&mining_config_mutex),
-                            chain_spec: chainspec.clone(),
-                        },
-                        false,
-                    );
-
-                    staged_sync.push(HashState::new(etl_temp_dir.clone(), None), !opt.prune);
-
-                    staged_sync.push_with_unwind_priority(
-                        Interhashes::new(etl_temp_dir.clone(), None),
-                        !opt.prune,
-                        1,
-                    );
-                    info!("createBlock stage enabled");
-
-                    staged_sync.push(
-                        MiningFinishBlock {
-                            mining_status: Arc::clone(&mining_status_mutex),
-                            mining_block: Arc::clone(&mining_block_mutex),
-                            mining_config: Arc::clone(&mining_config_mutex),
-                            chain_spec: chainspec.clone(),
-                            node: node.clone(),
-                        },
-                        false,
-                    );
-                };
+                staged_sync.push(Finish, !opt.prune);
 
                 info!("Running staged sync");
                 staged_sync.run(&db).await?;

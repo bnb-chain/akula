@@ -1,13 +1,12 @@
-use super::*;
-use crate::{
-    consensus::DuoError,
-    models::{Address, BlockNumber, ChainSpec},
-    HeaderReader, IntraBlockState, StateReader,
-};
+use std::collections::HashMap;
+use crate::{HeaderReader, IntraBlockState, StateReader};
+use crate::models::{Address, BlockNumber, ChainSpec};
+use std::str::FromStr;
+use rustc_hex::FromHex;
 use bytes::Bytes;
 use lazy_static::lazy_static;
-use rustc_hex::FromHex;
-use std::{collections::HashMap, str::FromStr};
+use crate::consensus::DuoError;
+use super::*;
 
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
 pub struct UpgradeConfig {
@@ -19,53 +18,30 @@ pub fn upgrade_build_in_system_contract<'r, S>(
     block_number: &BlockNumber,
     statedb: &mut IntraBlockState<'r, S>,
 ) -> anyhow::Result<(), DuoError>
-where
-    S: StateReader + HeaderReader,
+    where S: StateReader+HeaderReader,
 {
     if config.is_on_ramanujan(block_number) {
-        apply_system_contract_upgrade(
-            RAMANUJAN_UPGRADE_CONFIG
-                .get(&config.params.chain_id.0)
-                .unwrap(),
-            statedb,
-        )?;
+        apply_system_contract_upgrade(RAMANUJAN_UPGRADE_CONFIG.get(&config.params.chain_id.0).unwrap(), statedb)?;
     }
 
     if config.is_on_niels(block_number) {
-        apply_system_contract_upgrade(
-            NIELS_UPGRADE_CONFIG.get(&config.params.chain_id.0).unwrap(),
-            statedb,
-        )?;
+        apply_system_contract_upgrade(NIELS_UPGRADE_CONFIG.get(&config.params.chain_id.0).unwrap(), statedb)?;
     }
 
     if config.is_on_mirror_sync(block_number) {
-        apply_system_contract_upgrade(
-            MIRRORSYNC_UPGRADE_CONFIG
-                .get(&config.params.chain_id.0)
-                .unwrap(),
-            statedb,
-        )?;
+        apply_system_contract_upgrade(MIRRORSYNC_UPGRADE_CONFIG.get(&config.params.chain_id.0).unwrap(), statedb)?;
     }
 
     if config.is_on_bruno(block_number) {
-        apply_system_contract_upgrade(
-            BRUNO_UPGRADE_CONFIG.get(&config.params.chain_id.0).unwrap(),
-            statedb,
-        )?;
+        apply_system_contract_upgrade(BRUNO_UPGRADE_CONFIG.get(&config.params.chain_id.0).unwrap(), statedb)?;
     }
 
     if config.is_on_euler(block_number) {
-        apply_system_contract_upgrade(
-            EULER_UPGRADE_CONFIG.get(&config.params.chain_id.0).unwrap(),
-            statedb,
-        )?;
+        apply_system_contract_upgrade(EULER_UPGRADE_CONFIG.get(&config.params.chain_id.0).unwrap(), statedb)?;
     }
 
     if config.is_on_gibbs(block_number) {
-        apply_system_contract_upgrade(
-            GIBBS_UPGRADE_CONFIG.get(&config.params.chain_id.0).unwrap(),
-            statedb,
-        )?;
+        apply_system_contract_upgrade(GIBBS_UPGRADE_CONFIG.get(&config.params.chain_id.0).unwrap(), statedb)?;
     }
     Ok(())
 }
@@ -74,8 +50,7 @@ pub fn apply_system_contract_upgrade<'r, S>(
     upgrade: &Vec<UpgradeConfig>,
     statedb: &mut IntraBlockState<'r, S>,
 ) -> anyhow::Result<(), DuoError>
-where
-    S: StateReader + HeaderReader,
+    where S: StateReader+HeaderReader,
 {
     for x in upgrade.iter() {
         debug!("apply_system_contract_upgrade {}", x.contract_addr);

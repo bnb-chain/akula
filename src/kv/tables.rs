@@ -831,7 +831,6 @@ decl_table!(LastHeader => () => HeaderKey);
 decl_table!(Issuance => Vec<u8> => Vec<u8>);
 decl_table!(Version => () => u64);
 decl_table!(ColParliaSnapshot => H256 => Vec<u8>);
-decl_table!(ColCliqueSnapshot => H256 => Vec<u8>);
 
 pub type DatabaseChart = BTreeMap<&'static str, TableInfo>;
 
@@ -884,7 +883,6 @@ pub static CHAINDATA_TABLES: Lazy<Arc<DatabaseChart>> = Lazy::new(|| {
             table_entry!(Issuance),
             table_entry!(Version),
             table_entry!(ColParliaSnapshot),
-            table_entry!(ColCliqueSnapshot),
         ]
         .into_iter()
         .collect(),

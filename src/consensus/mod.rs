@@ -1,34 +1,31 @@
-pub mod base;
-pub mod beacon;
-pub mod blockchain;
-pub mod clique;
+mod base;
+mod beacon;
+mod blockchain;
+mod clique;
 pub mod fork_choice_graph;
-pub mod parlia;
+mod parlia;
 
 use self::fork_choice_graph::ForkChoiceGraph;
 pub use self::{base::*, beacon::*, blockchain::*, clique::*, parlia::*};
 use crate::{
     kv::{mdbx::*, MdbxWithDirHandle},
     models::*,
-    state::{IntraBlockState, StateReader},
     BlockReader, HeaderReader,
+    state::{IntraBlockState, StateReader}
 };
 use anyhow::bail;
 use derive_more::{Display, From};
-use ethnum::u256;
 use mdbx::{EnvironmentKind, TransactionKind};
 use parking_lot::Mutex;
 use std::{
-    collections::BTreeSet,
-    fmt::{Debug, Display, Formatter},
+    fmt::{Debug, Display},
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     sync::Arc,
-    time::SystemTimeError,
 };
-
-use crate::kv::tables;
+use std::time::{SystemTimeError};
 use tokio::sync::watch;
-use tracing::*;
+use tracing::{*};
+use crate::kv::tables;
 
 #[derive(Debug)]
 pub enum FinalizationChange {
@@ -71,14 +68,16 @@ impl ConsensusNewBlockState {
         header: &BlockHeader,
         state: &mut IntraBlockState<'r, S>,
     ) -> anyhow::Result<ConsensusNewBlockState>
-    where
-        S: StateReader + HeaderReader,
+        where
+            S: StateReader + HeaderReader,
     {
         Ok(match chain_spec.consensus.seal_verification {
-            SealVerificationParams::Parlia { .. } => ConsensusNewBlockState::Parlia(
-                parse_parlia_new_block_state(chain_spec, header, state)?,
-            ),
-            _ => ConsensusNewBlockState::Stateless,
+            SealVerificationParams::Parlia { .. } => {
+                ConsensusNewBlockState::Parlia(parse_parlia_new_block_state(chain_spec, header, state)?)
+            },
+            _ => {
+                ConsensusNewBlockState::Stateless
+            },
         })
     }
 }
@@ -95,6 +94,7 @@ pub enum ForkChoiceMode {
 }
 
 pub trait Consensus: Debug + Send + Sync + 'static {
+
     fn fork_choice_mode(&self) -> ForkChoiceMode;
 
     /// Performs validation of block header & body that can be done prior to sender recovery and execution.
@@ -137,7 +137,7 @@ pub trait Consensus: Debug + Send + Sync + 'static {
     fn new_block(
         &mut self,
         _header: &BlockHeader,
-        _state: ConsensusNewBlockState,
+        _state: ConsensusNewBlockState
     ) -> Result<(), DuoError> {
         Ok(())
     }
@@ -155,14 +155,6 @@ pub trait Consensus: Debug + Send + Sync + 'static {
     }
 
     fn validate_header_parallel(&self, _: &BlockHeader) -> Result<(), DuoError> {
-        Ok(())
-    }
-
-    fn prepare(
-        &mut self,
-        _state: &dyn StateReader,
-        _header: &mut BlockHeader,
-    ) -> anyhow::Result<(), DuoError> {
         Ok(())
     }
 
@@ -221,29 +213,6 @@ pub enum CliqueError {
         expected: Vec<Address>,
         got: Vec<Address>,
     },
-    WrongHeaderExtraLen {
-        expected: usize,
-        got: usize,
-    },
-    WrongHeaderExtraSignersLen {
-        expected: usize,
-        got: usize,
-    },
-    SnapFutureBlock {
-        expect: BlockNumber,
-        got: BlockNumber,
-    },
-    SnapNotFound {
-        number: BlockNumber,
-        hash: H256,
-    },
-    SignerUnauthorized {
-        number: BlockNumber,
-        signer: Address,
-    },
-    SignerOverLimit {
-        signer: Address,
-    },
 }
 
 impl Display for CliqueError {
@@ -271,15 +240,15 @@ pub enum ParliaError {
         expected: Address,
         got: Address,
     },
-    UnknownHeader {
+    UnknownHeader{
         number: BlockNumber,
         hash: H256,
     },
-    SignerUnauthorized {
+    SignerUnauthorized{
         number: BlockNumber,
         signer: Address,
     },
-    SignerOverLimit {
+    SignerOverLimit{
         signer: Address,
     },
     EpochChgWrongValidators {
@@ -421,45 +390,6 @@ pub enum ValidationError {
 
     CliqueError(CliqueError),
     ParliaError(ParliaError),
-    NoneTransactions,
-    NoneReceipts,
-    InvalidDB,
-    UnknownHeader {
-        number: BlockNumber,
-        hash: H256,
-    },
-    SignerUnauthorized {
-        number: BlockNumber,
-        signer: Address,
-    },
-    SignerOverLimit {
-        signer: Address,
-    },
-    EpochChgWrongValidators {
-        expect: BTreeSet<Address>,
-        got: BTreeSet<Address>,
-    },
-    EpochChgCallErr,
-    SnapFutureBlock {
-        expect: BlockNumber,
-        got: BlockNumber,
-    },
-    SnapNotFound {
-        number: BlockNumber,
-        hash: H256,
-    },
-    SystemTxWrongSystemReward {
-        expect: U256,
-        got: U256,
-    },
-    SystemTxWrongCount {
-        expect: usize,
-        got: usize,
-    },
-    SystemTxWrong {
-        expect: Message,
-        got: Message,
-    },
 }
 
 impl From<CliqueError> for ValidationError {
@@ -550,7 +480,10 @@ pub fn engine_factory(
     listen_addr: Option<SocketAddr>,
 ) -> anyhow::Result<Box<dyn Consensus>> {
     Ok(match chain_config.consensus.seal_verification {
-        SealVerificationParams::Parlia { period, epoch } => Box::new(Parlia::new(
+        SealVerificationParams::Parlia {
+            period,
+            epoch,
+        } => Box::new(Parlia::new(
             chain_config.params.chain_id,
             chain_config,
             epoch,
@@ -611,8 +544,12 @@ impl<E: EnvironmentKind> SnapDB for MdbxTransaction<'_, RW, E> {
     fn read_parlia_snap(&self, block_hash: H256) -> anyhow::Result<Option<Snapshot>> {
         let snap_op = self.get(tables::ColParliaSnapshot, block_hash)?;
         Ok(match snap_op {
-            None => None,
-            Some(val) => Some(serde_json::from_slice(&val)?),
+            None => {
+                None
+            }
+            Some(val) => {
+                Some(serde_json::from_slice(&val)?)
+            }
         })
     }
 

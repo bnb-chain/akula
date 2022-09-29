@@ -1,9 +1,7 @@
 #![allow(unreachable_code)]
 
 use crate::{
-    consensus::{
-        engine_factory, fork_choice_graph::ForkChoiceGraph, Consensus, DuoError, ForkChoiceMode,
-    },
+    consensus::{engine_factory, fork_choice_graph::ForkChoiceGraph, Consensus, DuoError, ForkChoiceMode},
     kv::{mdbx::*, tables},
     models::{BlockHeader, BlockNumber, H256},
     p2p::{
@@ -705,10 +703,12 @@ impl HeaderDownload {
         mut parent_header: &'a BlockHeader,
         headers: &'a [(H256, BlockHeader)],
     ) -> Result<(), (usize, H256)> {
-        let mut cursor_header = txn.cursor(tables::Header).map_err(|e| {
-            warn!("validate_sequentially, but txn open err: ({e:?})");
-            (0, H256::zero())
-        })?;
+
+        let mut cursor_header = txn.cursor(tables::Header)
+            .map_err(|e| {
+                warn!("validate_sequentially, but txn open err: ({e:?})");
+                (0, H256::zero())
+            })?;
         for (i, (hash, header)) in headers.iter().enumerate() {
             let parent_hash = parent_header.hash();
             if header.parent_hash != parent_hash || header.number != parent_header.number + 1_u8 {
@@ -716,23 +716,19 @@ impl HeaderDownload {
                 return Err((i.saturating_sub(1), *hash));
             }
 
-            if let Err(e) =
-                engine.snapshot(txn, BlockNumber(header.number.0 - 1), header.parent_hash)
-            {
+            if let Err(e) = engine.snapshot(txn, BlockNumber(header.number.0-1), header.parent_hash) {
                 warn!("Rejected bad block header ({hash:?}) when create snap err: {e:?}");
                 return Err((i.saturating_sub(1), *hash));
             }
-            if let Err(e) = engine.validate_block_header(header, parent_header, false) {
+            if let Err(e) = engine.validate_block_header(header, parent_header, false)
+            {
                 warn!("Rejected bad block header ({hash:?}) for reason {e:?}: {header:?}");
                 return Err((i.saturating_sub(1), *hash));
             }
             parent_header = header;
-            cursor_header
-                .put((header.number, headers[i].0), header.clone())
+            cursor_header.put((header.number, headers[i].0), header.clone())
                 .map_err(|e| {
-                    warn!(
-                        "Rejected bad block header ({hash:?}) because txn put header err: ({e:?})"
-                    );
+                    warn!("Rejected bad block header ({hash:?}) because txn put header err: ({e:?})");
                     (i.saturating_sub(1), *hash)
                 })?;
         }

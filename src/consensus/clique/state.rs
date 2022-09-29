@@ -11,7 +11,7 @@ use tracing::*;
 const NONCE_AUTH: u64 = 0xffffffffffffffff;
 const NONCE_DROP: u64 = 0x0000000000000000;
 const DIFF_NOTURN: U256 = U256::ONE;
-pub const DIFF_INTURN: U256 = U256::new(2);
+const DIFF_INTURN: U256 = U256::new(2);
 
 #[derive(Clone, Debug, PartialEq)]
 struct Vote {
@@ -103,7 +103,7 @@ impl Votes {
 }
 
 #[derive(Debug)]
-pub struct Signers(Vec<Address>);
+struct Signers(Vec<Address>);
 
 impl Signers {
     fn new() -> Self {
@@ -246,12 +246,8 @@ impl CliqueState {
         self.votes.set_threshold(self.signers.limit());
     }
 
-    pub fn is_epoch(&self, number: BlockNumber) -> bool {
+    fn is_epoch(&self, number: BlockNumber) -> bool {
         number.0 % self.epoch == 0
-    }
-
-    pub fn get_epoch(&self) -> u64 {
-        self.epoch
     }
 
     pub(crate) fn validate(

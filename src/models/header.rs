@@ -22,7 +22,6 @@ pub struct BlockHeader {
     pub extra_data: Bytes,
     pub mix_hash: H256,
     pub nonce: H64,
-
     pub base_fee_per_gas: Option<U256>,
 }
 
@@ -225,7 +224,7 @@ impl BlockHeader {
         keccak256(&out[..])
     }
 
-    fn encode_with_chain_id(&self, out: &mut dyn BufMut, chain_id: u64) {
+    fn encode_with_chain_id(&self, out: &mut dyn BufMut, chain_id :u64) {
         self.rlp_header_with_chain_id().encode(out);
         Encodable::encode(&chain_id, out);
         Encodable::encode(&self.parent_hash, out);
