@@ -348,6 +348,7 @@ impl Consensus for Clique {
         header: &BlockHeader,
         parent: &BlockHeader,
         with_future_timestamp_check: bool,
+        _db: &dyn HeaderReader,
     ) -> Result<(), DuoError> {
         self.base
             .validate_block_header(header, parent, with_future_timestamp_check)?;

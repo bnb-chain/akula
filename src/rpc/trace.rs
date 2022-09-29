@@ -102,6 +102,10 @@ where
     ) -> anyhow::Result<Option<BlockHeader>> {
         self.inner.read_header(block_number, block_hash)
     }
+
+    fn read_header_by_number(&self, block_number: BlockNumber) -> anyhow::Result<Option<BlockHeader>> {
+        self.inner.read_header_by_number(block_number)
+    }
 }
 
 impl<'buffer, 'db, 'tx, K, E> StateReader for LoggingBuffer<'buffer, 'db, 'tx, K, E>

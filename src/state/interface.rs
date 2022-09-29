@@ -11,6 +11,11 @@ pub trait HeaderReader: Debug + Send + Sync {
         block_hash: H256,
     ) -> anyhow::Result<Option<BlockHeader>>;
 
+    fn read_header_by_number(
+        &self,
+        block_number: BlockNumber,
+    ) -> anyhow::Result<Option<BlockHeader>>;
+
     fn read_parent_header(&self, header: &BlockHeader) -> anyhow::Result<Option<BlockHeader>> {
         if let Some(parent_number) = header.number.0.checked_sub(1) {
             return self.read_header(parent_number.into(), header.parent_hash);

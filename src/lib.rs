@@ -23,6 +23,8 @@
     clippy::unused_io_amount
 )]
 #![doc = include_str!("../README.md")]
+extern crate core;
+
 pub mod accessors;
 #[doc(hidden)]
 pub mod binutil;
