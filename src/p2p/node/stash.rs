@@ -1,15 +1,17 @@
 use crate::{
     accessors::chain,
     kv::{tables, MdbxWithDirHandle},
-    models::{BlockBody, BlockHeader, BlockNumber, H256},
+    models::{Block, BlockBody, BlockHeader, BlockNumber, PartialHeader, H256},
     p2p::types::{BlockId, GetBlockHeadersParams},
 };
+use anyhow::format_err;
 use mdbx::EnvironmentKind;
 use std::fmt::Debug;
 
 pub trait Stash: Send + Sync + Debug {
     fn get_headers(&self, _: GetBlockHeadersParams) -> anyhow::Result<Vec<BlockHeader>>;
     fn get_bodies(&self, _: Vec<H256>) -> anyhow::Result<Vec<BlockBody>>;
+    fn get_block(&self, _: H256) -> anyhow::Result<Block>;
 }
 
 impl Stash for () {
@@ -18,6 +20,12 @@ impl Stash for () {
     }
     fn get_bodies(&self, _: Vec<H256>) -> anyhow::Result<Vec<BlockBody>> {
         Ok(vec![])
+    }
+    fn get_block(&self, _: H256) -> anyhow::Result<Block> {
+        let header = BlockHeader::default();
+        let partial_header = PartialHeader::from(header);
+        let block = Block::new(partial_header, vec![], vec![]);
+        Ok(block)
     }
 }
 
@@ -89,5 +97,21 @@ where
                 chain::block_body::read_without_senders(&txn, hash, number).unwrap_or(None)
             })
             .collect::<Vec<_>>())
+    }
+
+    fn get_block(&self, hash: H256) -> anyhow::Result<Block> {
+        let txn = self.begin().expect("Failed to begin transaction");
+
+        let number = txn
+            .get(tables::HeaderNumber, hash)?
+            .ok_or_else(|| format_err!("No canonical hash found for block {}", hash))?;
+
+        let header = txn.get(tables::Header, (number, hash))?.unwrap();
+        let body = chain::block_body::read_without_senders(&txn, hash, number)?.unwrap();
+
+        let partial_header = PartialHeader::from(header.clone());
+
+        let block = Block::new(partial_header.clone(), body.transactions, body.ommers);
+        Ok(block)
     }
 }

@@ -2,15 +2,12 @@ use super::*;
 
 #[derive(Debug)]
 pub struct ParliaNewBlockState {
-    next_validators: Option<Vec<Address>>
+    next_validators: Option<Vec<Address>>,
 }
 
 impl ParliaNewBlockState {
-
     pub fn new(next_validators: Option<Vec<Address>>) -> ParliaNewBlockState {
-        ParliaNewBlockState {
-            next_validators
-        }
+        ParliaNewBlockState { next_validators }
     }
 
     pub fn get_validators(&self) -> Option<&Vec<Address>> {

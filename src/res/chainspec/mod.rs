@@ -11,7 +11,6 @@ pub static GOERLI: Lazy<ChainSpec> =
     Lazy::new(|| ron::from_str(include_str!("goerli.ron")).unwrap());
 pub static SEPOLIA: Lazy<ChainSpec> =
     Lazy::new(|| ron::from_str(include_str!("sepolia.ron")).unwrap());
-pub static BSC: Lazy<ChainSpec> =
-    Lazy::new(|| ron::from_str(include_str!("bsc.ron")).unwrap());
+pub static BSC: Lazy<ChainSpec> = Lazy::new(|| ron::from_str(include_str!("bsc.ron")).unwrap());
 pub static BSCTEST: Lazy<ChainSpec> =
     Lazy::new(|| ron::from_str(include_str!("bsctest.ron")).unwrap());

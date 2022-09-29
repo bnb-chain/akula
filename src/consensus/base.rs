@@ -6,7 +6,7 @@ pub const MIN_GAS_LIMIT: u64 = 5000;
 
 #[derive(Debug)]
 pub struct ConsensusEngineBase {
-    chain_id: ChainId,
+    pub chain_id: ChainId,
     eip1559_block: Option<BlockNumber>,
     max_extra_data_length: Option<usize>,
 }
