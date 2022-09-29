@@ -123,6 +123,7 @@ where
                             &prev_progress_block,
                             chain_tip_hash,
                             chain_finalized_hash,
+                            txn,
                         )
                         .await
                     {
@@ -310,13 +311,14 @@ enum LinearDownloadResult {
 impl HeaderDownload {
     const BACK_OFF: Duration = Duration::from_secs(5);
 
-    async fn reverse_download_linear(
+    async fn reverse_download_linear<'tx, 'db, E: EnvironmentKind>(
         &self,
         stream: &mut NodeStream,
         head: H256,
         head_block: &BlockHeader,
         chain_tip: H256,
         finalized: H256,
+        txn: &'tx mut MdbxTransaction<'db, RW, E>,
     ) -> LinearDownloadResult {
         // TODO: BTreeMap keyed by block number for quick and dirty sorting - need to tweak downloader logic and replace with simple Vec
         let mut buffered_headers = BTreeMap::<BlockNumber, (H256, BlockHeader)>::new();
@@ -415,7 +417,7 @@ impl HeaderDownload {
 
                             if let Err(e) =
                                 self.consensus
-                                    .validate_block_header(earliest_block, &header, true)
+                                    .validate_block_header(earliest_block, &header, true, txn)
                             {
                                 warn!(
                                     "Failed to validate block header #{}/{header_hash:?}: {e:?}",
@@ -727,13 +729,12 @@ impl HeaderDownload {
                 return Err((i.saturating_sub(1), *hash));
             }
 
-            if let Err(e) =
-                engine.snapshot(txn, BlockNumber(header.number.0 - 1), header.parent_hash)
-            {
+            if let Err(e) = engine.snapshot(txn, txn, BlockNumber(header.number.0-1), header.parent_hash) {
                 warn!("Rejected bad block header ({hash:?}) when create snap err: {e:?}");
                 return Err((i.saturating_sub(1), *hash));
             }
-            if let Err(e) = engine.validate_block_header(header, parent_header, false) {
+            if let Err(e) = engine.validate_block_header(header, parent_header, false, txn)
+            {
                 warn!("Rejected bad block header ({hash:?}) for reason {e:?}: {header:?}");
                 return Err((i.saturating_sub(1), *hash));
             }

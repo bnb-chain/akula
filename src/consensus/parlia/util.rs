@@ -7,6 +7,7 @@ use secp256k1::{
 };
 use sha3::{Digest, Keccak256};
 use std::{collections::HashSet, str::FromStr};
+use fastrlp::Decodable;
 
 /// How many cache with recovered signatures.
 const RECOVERED_CREATOR_CACHE_NUM: usize = 4096;
@@ -15,7 +16,6 @@ lazy_static! {
 
     /// recovered creator cache map by block_number: creator_address
     static ref RECOVERED_CREATOR_CACHE: RwLock<LruCache<H256, Address>> = RwLock::new(LruCache::new(RECOVERED_CREATOR_CACHE_NUM));
-    pub static ref MAX_GAS_LIMIT_CAP: ethnum::U256 = ethnum::U256::from(0x7fffffffffffffff_u64);
 
     pub static ref SYSTEM_ACCOUNT: Address = Address::from_str("ffffFFFfFFffffffffffffffFfFFFfffFFFfFFfE").unwrap();
     pub static ref VALIDATOR_CONTRACT: Address =  Address::from_str("0000000000000000000000000000000000001000").unwrap();
@@ -87,14 +87,13 @@ pub fn recover_creator(header: &BlockHeader, chain_id: ChainId) -> Result<Addres
 
     let extra_data = &header.extra_data;
 
-    if extra_data.len() < VANITY_LENGTH + SIGNATURE_LENGTH {
+    if extra_data.len() < EXTRA_VANITY_LEN + SIGNATURE_LEN {
         return Err(ParliaError::WrongHeaderExtraLen {
-            expected: VANITY_LENGTH + SIGNATURE_LENGTH,
-            got: extra_data.len(),
-        }
-        .into());
+            expected: EXTRA_VANITY_LEN + SIGNATURE_LEN,
+            got: extra_data.len()
+        }.into());
     }
-    let signature_offset = header.extra_data.len() - SIGNATURE_LENGTH;
+    let signature_offset = header.extra_data.len() - SIGNATURE_LEN;
 
     let sig = &header.extra_data[signature_offset..signature_offset + 64];
     let rec = RecoveryId::from_i32(header.extra_data[signature_offset + 64] as i32)?;
@@ -129,7 +128,7 @@ pub fn is_similar_tx(actual: &Message, expect: &Message) -> bool {
 
 /// find header.block_number - count, block header
 pub fn find_ancient_header(
-    db: &dyn SnapDB,
+    db: &dyn HeaderReader,
     header: &BlockHeader,
     count: u64,
 ) -> Result<BlockHeader, DuoError> {
@@ -143,6 +142,123 @@ pub fn find_ancient_header(
             })?;
     }
     Ok(result)
+}
+
+// verify_extra_len check header's extra length if valid
+pub fn verify_extra_len(header: &BlockHeader, chain_spec: &ChainSpec, epoch: u64) -> Result<(), DuoError> {
+    let extra_len = header.extra_data.len();
+    if extra_len <= EXTRA_VANITY_LEN + EXTRA_SEAL_LEN {
+        return Err(ParliaError::WrongHeaderExtraLen {
+            expected: EXTRA_VANITY_LEN + EXTRA_SEAL_LEN,
+            got: extra_len,
+        }.into());
+    }
+
+    if header.number.0 % epoch != 0 {
+        return Ok(())
+    }
+
+    // check if has correct some address in epoch chg, before boneh
+    if !chain_spec.is_boneh(&header.number) {
+        if (extra_len - EXTRA_SEAL_LEN - EXTRA_VANITY_LEN) % EXTRA_VANITY_LEN != 0 {
+            return Err(ParliaError::WrongHeaderExtraSignersLen {
+                expected: EXTRA_VANITY_LEN + EXTRA_SEAL_LEN,
+                got: extra_len,
+            }.into());
+        }
+
+        return Ok(());
+    }
+
+    // check if has correct BLS keys in epoch chg, after boneh
+    let count = header.extra_data[EXTRA_VANITY_LEN_WITH_NUM_IN_BONEH - 1] as usize;
+    let expect = EXTRA_VANITY_LEN_WITH_NUM_IN_BONEH + EXTRA_SEAL_LEN + count * EXTRA_VALIDATOR_LEN_IN_BONEH;
+    if count == 0 || extra_len < expect {
+        return Err(ParliaError::WrongHeaderExtraSignersLen {
+            expected: expect,
+            got: extra_len,
+        }.into());
+    }
+
+    Ok(())
+}
+
+/// get_validator_bytes_from_header returns the validators bytes extracted from the header's extra field if exists.
+///
+/// The validators bytes would be contained only in the epoch block's header, and its each validator bytes length is fixed.
+///
+/// On boneh fork, we introduce vote attestation into the header's extra field, so extra format is different from before.
+///
+/// Before boneh fork: |---Extra Vanity---|---Validators Bytes (or Empty)---|---Extra Seal---|
+///
+/// After boneh fork:  |---Extra Vanity---|---Validators Number---|---Validators Bytes (or Empty)---|---Vote Attestation (or Empty)---|---Extra Seal---|
+///
+pub fn get_validator_bytes_from_header<'a, 'b>(header: &'a BlockHeader, chain_spec: &'b ChainSpec, epoch: u64) -> anyhow::Result<&'a [u8]> {
+    verify_extra_len(header, chain_spec, epoch)?;
+    let extra_len = header.extra_data.len();
+
+    if !chain_spec.is_boneh(&header.number) {
+        return Ok(&header.extra_data[EXTRA_VANITY_LEN..extra_len - EXTRA_SEAL_LEN]);
+    }
+
+    let count = header.extra_data[EXTRA_VANITY_LEN_WITH_NUM_IN_BONEH - 1] as usize;
+    let start = EXTRA_VANITY_LEN_WITH_NUM_IN_BONEH;
+    let end = start + count * EXTRA_VALIDATOR_LEN_IN_BONEH;
+    return Ok(&header.extra_data[start..end]);
+}
+
+pub fn parse_validators_from_header(header: &BlockHeader, chain_spec: &ChainSpec, epoch: u64) -> anyhow::Result<(Vec<Address>, Option<Vec<BLSPublicKey>>)> {
+    let val_bytes = get_validator_bytes_from_header(header, chain_spec, epoch)?;
+
+    if !chain_spec.is_boneh(&header.number) {
+        let count = val_bytes.len() / EXTRA_VALIDATOR_LEN;
+        let mut vals = Vec::with_capacity(count);
+        for i in 0..count {
+            let start = i * EXTRA_VALIDATOR_LEN;
+            let end = start + EXTRA_VALIDATOR_LEN;
+            vals.push(Address::from_slice(&val_bytes[start..end]));
+        }
+
+        return Ok((vals, None))
+    }
+
+    let count = val_bytes.len() / EXTRA_VALIDATOR_LEN_IN_BONEH;
+    let mut vals = Vec::with_capacity(count);
+    let mut bls_keys = Vec::with_capacity(count);
+    for i in 0..count {
+        let start = i * EXTRA_VALIDATOR_LEN_IN_BONEH;
+        let end = start + EXTRA_VALIDATOR_LEN;
+        vals.push(Address::from_slice(&val_bytes[start..end]));
+
+        let start = i * EXTRA_VALIDATOR_LEN_IN_BONEH + EXTRA_VALIDATOR_LEN;
+        let end = start + EXTRA_VALIDATOR_LEN_IN_BONEH;
+        let mut dst = [0; 48];
+        dst.copy_from_slice(&val_bytes[start..end]);
+        bls_keys.push(dst);
+    }
+
+    return Ok((vals, Some(bls_keys)))
+}
+
+/// get_vote_attestation returns the vote attestation from the header's extra field
+pub fn get_vote_attestation_from_header(header: &BlockHeader, chain_spec: &ChainSpec, epoch: u64) -> Result<Option<VoteAttestation>, DuoError> {
+    verify_extra_len(header, chain_spec, epoch)?;
+
+    let mut raw;
+    let extra_len = header.extra_data.len();
+    if header.number.0 % epoch != 0 {
+        raw = &header.extra_data[EXTRA_VANITY_LEN .. extra_len - EXTRA_SEAL_LEN]
+    } else {
+        let count = header.extra_data[EXTRA_VANITY_LEN_WITH_NUM_IN_BONEH - 1] as usize;
+        let start = EXTRA_VANITY_LEN_WITH_NUM_IN_BONEH + count * EXTRA_VALIDATOR_LEN_IN_BONEH;
+        let end = extra_len - EXTRA_SEAL_LEN;
+        raw = &header.extra_data[start..end];
+    }
+    if raw.len() == 0 {
+        return Ok(None);
+    }
+
+    Ok(Some(Decodable::decode(&mut raw)?))
 }
 
 #[cfg(test)]

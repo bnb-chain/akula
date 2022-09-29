@@ -13,7 +13,7 @@ use crate::{
     state::{IntraBlockState, StateReader},
     BlockReader, HeaderReader,
 };
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use derive_more::{Display, From};
 use ethnum::u256;
 use mdbx::{EnvironmentKind, TransactionKind};
@@ -25,6 +25,8 @@ use std::{
     sync::Arc,
     time::SystemTimeError,
 };
+use fastrlp::DecodeError;
+use milagro_bls::AmclError;
 use tokio::sync::watch;
 use tracing::*;
 
@@ -109,6 +111,7 @@ pub trait Consensus: Debug + Send + Sync + 'static {
         header: &BlockHeader,
         parent: &BlockHeader,
         with_future_timestamp_check: bool,
+        db: &dyn HeaderReader,
     ) -> Result<(), DuoError>;
 
     /// Finalizes block execution by applying changes in the state of accounts or of the consensus itself
@@ -167,7 +170,8 @@ pub trait Consensus: Debug + Send + Sync + 'static {
     /// To be overridden for consensus validators' snap.
     fn snapshot(
         &mut self,
-        _db: &dyn SnapDB,
+        _snap_db: &dyn SnapDB,
+        _header_db: &dyn HeaderReader,
         _block_number: BlockNumber,
         _block_hash: H256,
     ) -> anyhow::Result<(), DuoError> {
@@ -284,6 +288,10 @@ pub enum ParliaError {
         expect: Vec<Address>,
         got: Vec<Address>,
     },
+    EpochChgWrongValidatorsInBoneh {
+        expect: Vec<Address>,
+        err: String,
+    },
     EpochChgCallErr,
     SnapFutureBlock {
         expect: BlockNumber,
@@ -292,6 +300,14 @@ pub enum ParliaError {
     SnapNotFound {
         number: BlockNumber,
         hash: H256,
+    },
+    SnapCreateMissVoteAddrCount {
+        expect: usize,
+        got: usize,
+    },
+    SnapNotFoundVoteAddr {
+        index: usize,
+        addr: Address,
     },
     SystemTxWrongSystemReward {
         expect: U256,
@@ -311,6 +327,36 @@ pub enum ParliaError {
         block: BlockNumber,
         account: Address,
     },
+    UnknownTargetBLSKey {
+        block: BlockNumber,
+        account: Address,
+    },
+    WrongGasLimit {
+        expect: u64,
+        got: u64,
+    },
+    TooLargeAttestationExtraLen {
+        expect: usize,
+        got: usize,
+    },
+    InvalidAttestationTarget {
+        expect_block: BlockNumber,
+        expect_hash: H256,
+        got_block: BlockNumber,
+        got_hash: H256,
+    },
+    InvalidAttestationSource {
+        expect_block: BlockNumber,
+        expect_hash: H256,
+        got_block: BlockNumber,
+        got_hash: H256,
+    },
+    InvalidAttestationVoteCount {
+        expect: usize,
+        got: usize,
+    },
+    InvalidAttestationAggSig,
+    UnknownVoteAddresses,
 }
 impl From<ParliaError> for anyhow::Error {
     fn from(err: ParliaError) -> Self {
@@ -514,6 +560,18 @@ impl From<secp256k1::Error> for DuoError {
 impl From<SystemTimeError> for DuoError {
     fn from(err: SystemTimeError) -> Self {
         DuoError::Internal(anyhow::Error::from(err))
+    }
+}
+
+impl From<DecodeError> for DuoError {
+    fn from(err: DecodeError) -> Self {
+        DuoError::Internal(anyhow::Error::from(err))
+    }
+}
+
+impl From<AmclError> for DuoError {
+    fn from(err: AmclError) -> Self {
+        DuoError::Internal(anyhow!("AmclError: {:?}", err))
     }
 }
 

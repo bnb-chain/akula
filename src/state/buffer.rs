@@ -113,6 +113,10 @@ where
 
         Ok(None)
     }
+
+    fn read_header_by_number(&self, block_number: BlockNumber) -> anyhow::Result<Option<BlockHeader>> {
+        self.get(tables::Header, block_number)
+    }
 }
 
 impl<'db, 'tx, K, E> BlockReader for MdbxTransaction<'db, K, E>
@@ -148,6 +152,10 @@ where
         block_hash: H256,
     ) -> anyhow::Result<Option<BlockHeader>> {
         self.txn.read_header(block_number, block_hash)
+    }
+
+    fn read_header_by_number(&self, block_number: BlockNumber) -> anyhow::Result<Option<BlockHeader>> {
+        self.txn.read_header_by_number(block_number)
     }
 }
 

@@ -201,6 +201,7 @@ impl Consensus for BeaconConsensus {
         header: &crate::models::BlockHeader,
         parent: &crate::models::BlockHeader,
         with_future_timestamp_check: bool,
+        _db: &dyn HeaderReader,
     ) -> Result<(), super::DuoError> {
         self.base
             .validate_block_header(header, parent, with_future_timestamp_check)?;

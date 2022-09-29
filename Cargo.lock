@@ -62,6 +62,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "auto_impl",
+ "bit-set",
  "block-padding",
  "byte-unit",
  "byteorder",
@@ -121,6 +122,7 @@ dependencies = [
  "lru",
  "lru-cache",
  "maplit",
+ "milagro_bls",
  "modular-bitfield",
  "num-bigint",
  "num-traits",
@@ -176,6 +178,11 @@ dependencies = [
  "vergen",
  "walkdir",
 ]
+
+[[package]]
+name = "amcl"
+version = "0.3.0"
+source = "git+https://github.com/sigp/milagro_bls?tag=v1.4.2#16655aa033175a90c10ef02aa144e2835de23aec"
 
 [[package]]
 name = "anes"
@@ -2544,6 +2551,18 @@ dependencies = [
  "error-chain",
  "pkg-config",
  "toml 0.2.1",
+]
+
+[[package]]
+name = "milagro_bls"
+version = "1.4.2"
+source = "git+https://github.com/sigp/milagro_bls?tag=v1.4.2#16655aa033175a90c10ef02aa144e2835de23aec"
+dependencies = [
+ "amcl",
+ "hex 0.4.3",
+ "lazy_static",
+ "rand 0.7.3",
+ "zeroize",
 ]
 
 [[package]]
