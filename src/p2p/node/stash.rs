@@ -4,6 +4,7 @@ use crate::{
     models::{Block, BlockBody, BlockHeader, BlockNumber, PartialHeader, H256},
     p2p::types::{BlockId, GetBlockHeadersParams},
 };
+use anyhow::format_err;
 use mdbx::EnvironmentKind;
 use std::fmt::Debug;
 
@@ -101,7 +102,9 @@ where
     fn get_block(&self, hash: H256) -> anyhow::Result<Block> {
         let txn = self.begin().expect("Failed to begin transaction");
 
-        let number = txn.get(tables::HeaderNumber, hash)?.unwrap();
+        let number = txn
+            .get(tables::HeaderNumber, hash)?
+            .ok_or_else(|| format_err!("No canonical hash found for block {}", hash))?;
 
         let header = txn.get(tables::Header, (number, hash))?.unwrap();
         let body = chain::block_body::read_without_senders(&txn, hash, number)?.unwrap();

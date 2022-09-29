@@ -118,7 +118,10 @@ where
     where
         'db: 'tx,
     {
-        todo!()
+        debug!("Miner execute block unwind");
+        Ok(UnwindOutput {
+            stage_progress: _input.unwind_to,
+        })
     }
 }
 
