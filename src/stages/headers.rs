@@ -415,10 +415,12 @@ impl HeaderDownload {
                                 break;
                             }
 
-                            if let Err(e) =
-                                self.consensus
-                                    .validate_block_header(earliest_block, &header, true, txn)
-                            {
+                            if let Err(e) = self.consensus.validate_block_header(
+                                earliest_block,
+                                &header,
+                                true,
+                                txn,
+                            ) {
                                 warn!(
                                     "Failed to validate block header #{}/{header_hash:?}: {e:?}",
                                     header.number
@@ -729,12 +731,16 @@ impl HeaderDownload {
                 return Err((i.saturating_sub(1), *hash));
             }
 
-            if let Err(e) = engine.snapshot(txn, txn, BlockNumber(header.number.0-1), header.parent_hash) {
+            if let Err(e) = engine.snapshot(
+                txn,
+                txn,
+                BlockNumber(header.number.0 - 1),
+                header.parent_hash,
+            ) {
                 warn!("Rejected bad block header ({hash:?}) when create snap err: {e:?}");
                 return Err((i.saturating_sub(1), *hash));
             }
-            if let Err(e) = engine.validate_block_header(header, parent_header, false, txn)
-            {
+            if let Err(e) = engine.validate_block_header(header, parent_header, false, txn) {
                 warn!("Rejected bad block header ({hash:?}) for reason {e:?}: {header:?}");
                 return Err((i.saturating_sub(1), *hash));
             }

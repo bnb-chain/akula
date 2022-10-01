@@ -103,7 +103,10 @@ where
         self.inner.read_header(block_number, block_hash)
     }
 
-    fn read_header_by_number(&self, block_number: BlockNumber) -> anyhow::Result<Option<BlockHeader>> {
+    fn read_header_by_number(
+        &self,
+        block_number: BlockNumber,
+    ) -> anyhow::Result<Option<BlockHeader>> {
         self.inner.read_header_by_number(block_number)
     }
 }
@@ -393,8 +396,8 @@ where
 
     let mut rewards = vec![];
     if let Some(ommers) = ommers_for_finalization {
-        for change in
-            engine_factory(None, chain_spec, None)?.finalize(&header, &ommers, None, &buffer)?
+        for change in engine_factory(None, chain_spec, None)?
+            .finalize(&header, &ommers, None, &buffer, &buffer)?
         {
             match change {
                 crate::consensus::FinalizationChange::Reward {

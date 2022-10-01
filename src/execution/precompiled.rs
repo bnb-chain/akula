@@ -1,7 +1,8 @@
-use crate::{chain::protocol_param::param, crypto::*, models::*, util::*};
+use crate::{chain::protocol_param::param, consensus::VoteData, crypto::*, models::*, util::*};
 use arrayref::array_ref;
 use bytes::{Buf, Bytes};
 use lazy_static::lazy_static;
+use milagro_bls::{AmclError, PublicKey, Signature};
 use num_bigint::BigUint;
 use num_traits::Zero;
 use parity_bytes::BytesRef;
@@ -111,6 +112,13 @@ lazy_static! {
                 run: iavl_proof_verify_run,
             },
         );
+        m.insert(
+            102,
+            Contract {
+                gas: vote_signature_verify_gas,
+                run: vote_signature_verify_run,
+            },
+        );
         m
     };
 }
@@ -118,7 +126,7 @@ lazy_static! {
 pub const NUM_OF_FRONTIER_CONTRACTS: usize = 4;
 pub const NUM_OF_BYZANTIUM_CONTRACTS: usize = 8;
 pub const NUM_OF_ISTANBUL_CONTRACTS: usize = 9;
-pub const NUM_OF_PARLIA_ISTANBUL_CONTRACTS: usize = 11;
+pub const NUM_OF_PARLIA_ISTANBUL_CONTRACTS: usize = 12;
 pub const MAX_NUM_OF_PARLIA_PRECOMPILED: usize = 127;
 
 fn ecrecover_gas(_: Bytes, _: Revision) -> Option<u64> {
@@ -533,6 +541,56 @@ fn iavl_proof_verify_run(input: Bytes) -> Option<Bytes> {
     };
 }
 
+fn vote_signature_verify_gas(_: Bytes, _: Revision) -> Option<u64> {
+    Some(35_000)
+}
+
+fn vote_signature_verify_run(input: Bytes) -> Option<Bytes> {
+    if input.len() != 272 {
+        warn!(
+            "vote_signature_verify_run input has unexpected length {}:{}",
+            input.len(),
+            272
+        );
+        return None;
+    }
+
+    let mut tmp_arr = [0_u8; 32];
+    tmp_arr.copy_from_slice(&input[0..32]);
+    let src_block = BlockNumber(U256::from_be_bytes(tmp_arr).as_u64());
+    tmp_arr.copy_from_slice(&input[32..64]);
+    let target_block = BlockNumber(U256::from_be_bytes(tmp_arr).as_u64());
+    let src_hash = H256::from_slice(&input[64..96]);
+    let target_hash = H256::from_slice(&input[96..128]);
+
+    let vote_data = VoteData {
+        source_number: src_block,
+        source_hash: src_hash,
+        target_number: target_block,
+        target_hash,
+    };
+
+    let succ = verify_bls_signature(&input, &vote_data);
+    match succ {
+        Ok(true) => Some(Bytes::copy_from_slice(&U256::ONE.to_be_bytes())),
+        Ok(false) => {
+            warn!("vote_signature_verify_run verify failed");
+            None
+        }
+        Err(err) => {
+            warn!("vote_signature_verify_run verify err {:?}", err);
+            None
+        }
+    }
+}
+
+#[inline]
+fn verify_bls_signature(input: &Bytes, vote_data: &VoteData) -> Result<bool, AmclError> {
+    let bls_key = PublicKey::from_bytes(&input[224..272])?;
+    let sig = Signature::from_bytes(&input[128..224])?;
+    Ok(sig.verify(&vote_data.hash()[..], &bls_key))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -817,5 +875,28 @@ mod tests {
             res,
             "0000000000000000000000000000000000000000000000000000000000000001"
         )
+    }
+
+    #[test]
+    fn vote_signature_verify() {
+        let vote_data = VoteData {
+            source_number: BlockNumber(16692_u64),
+            source_hash: hex!("b3869053c92dc758a081085639662f15c161181ca6b51f3972141ac6f181c1fb")
+                .into(),
+            target_number: BlockNumber(16707_u64),
+            target_hash: hex!("547b39c498f8c4e3c69c9ccc4d411a8e98fcaadfb18540e934b1cb9d1abf47be")
+                .into(),
+        };
+
+        let b1: Vec<u8> = hex::decode("8addebd6ef7609df215e006987040d0a643858f3a4d791beaa77177d67529160e645fac54f0d8acdcd5a088393cb6681").unwrap();
+        let bls_key = PublicKey::from_bytes(b1.as_slice()).unwrap();
+        let b1 = hex::decode("ae6f1f8e6c714f22157d4966fb096bb7dafe9657e4253888789f8d77bda9a90ced93fccaa164feabed525d8d9037a06e0cfa47fde4c94fb22c1d4bd7a62f0e769cb3f4d56326b4d5a1d0ba46c47f133e833373c1d980c03fe46767526569d1df").unwrap();
+        let sig = Signature::from_bytes(b1.as_slice()).unwrap();
+        let hash = &vote_data.hash()[..];
+        assert_eq!(
+            "cc9be3965bd78290165720a4442546d8128d0ab1886e478d748785fe5c819b24",
+            hex::encode(hash)
+        );
+        assert_eq!(true, sig.verify(hash, &bls_key));
     }
 }

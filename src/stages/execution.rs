@@ -1,6 +1,8 @@
 use crate::{
     accessors,
-    consensus::*,
+    consensus::{
+        engine_factory, CliqueError, ConsensusState, DuoError, ValidationError, DIFF_INTURN,
+    },
     execution::{
         analysis_cache::AnalysisCache,
         processor::ExecutionProcessor,
@@ -84,7 +86,12 @@ fn execute_batch_of_blocks<E: EnvironmentKind>(
         }
 
         if chain_config.consensus.is_parlia() && header.difficulty != DIFF_INTURN {
-            consensus_engine.snapshot(tx, tx, BlockNumber(header.number.0-1), header.parent_hash)?;
+            consensus_engine.snapshot(
+                tx,
+                tx,
+                BlockNumber(header.number.0 - 1),
+                header.parent_hash,
+            )?;
         }
 
         let mut call_tracer = CallTracer::default();

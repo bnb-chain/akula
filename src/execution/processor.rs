@@ -14,7 +14,7 @@ use crate::{
 };
 use bytes::Bytes;
 use std::cmp::min;
-use tracing::info;
+use tracing::{debug, info, warn};
 use TransactionAction;
 
 pub struct ExecutionProcessor<'r, 'tracer, 'analysis, 'e, 'h, 'b, 'c, S>
@@ -63,9 +63,14 @@ where
     gas_left += refund;
 
     let base_fee_per_gas = header.base_fee_per_gas.unwrap_or(U256::ZERO);
-    let effective_gas_price = message
-        .effective_gas_price(base_fee_per_gas)
-        .ok_or(ValidationError::MaxFeeLessThanBase)?;
+    let effective_gas_price =
+        if parlia_engine && is_system_transaction(message, &sender, &header.beneficiary) {
+            U256::ZERO
+        } else {
+            message
+                .effective_gas_price(base_fee_per_gas)
+                .ok_or(ValidationError::MaxFeeLessThanBase)?
+        };
     state.add_to_balance(sender, U256::from(gas_left) * effective_gas_price)?;
 
     Ok(gas_left)
@@ -92,12 +97,7 @@ where
     state.access_account(sender);
 
     let parlia_engine = block_spec.consensus.is_parlia();
-    let base_fee_per_gas = if parlia_engine && is_system_transaction(message, &sender, &beneficiary)
-    {
-        U256::ZERO
-    } else {
-        header.base_fee_per_gas.unwrap_or(U256::ZERO)
-    };
+    let base_fee_per_gas = header.base_fee_per_gas.unwrap_or(U256::ZERO);
 
     if parlia_engine && is_system_transaction(message, &sender, &beneficiary) {
         let system_balance = state.get_balance(*SYSTEM_ACCOUNT)?;
@@ -107,9 +107,14 @@ where
         }
     }
 
-    let effective_gas_price = message
-        .effective_gas_price(base_fee_per_gas)
-        .ok_or(ValidationError::MaxFeeLessThanBase)?;
+    let effective_gas_price =
+        if parlia_engine && is_system_transaction(message, &sender, &beneficiary) {
+            U256::ZERO
+        } else {
+            message
+                .effective_gas_price(base_fee_per_gas)
+                .ok_or(ValidationError::MaxFeeLessThanBase)?
+        };
     state.subtract_from_balance(
         sender,
         U256::from(message.gas_limit()) * effective_gas_price,
@@ -168,9 +173,18 @@ where
         )?;
 
     // award the miner
-    let priority_fee_per_gas = message
-        .priority_fee_per_gas(base_fee_per_gas)
-        .ok_or(ValidationError::MaxFeeLessThanBase)?;
+    let priority_fee_per_gas =
+        if parlia_engine && is_system_transaction(message, &sender, &header.beneficiary) {
+            U256::ZERO
+        } else if parlia_engine {
+            message
+                .effective_gas_price(base_fee_per_gas)
+                .ok_or(ValidationError::MaxFeeLessThanBase)?
+        } else {
+            message
+                .priority_fee_per_gas(base_fee_per_gas)
+                .ok_or(ValidationError::MaxFeeLessThanBase)?
+        };
     let rewards = U256::from(gas_used) * priority_fee_per_gas;
     if rewards > 0 {
         if parlia_engine {
@@ -387,6 +401,7 @@ where
             &self.block.ommers,
             Some(&self.block.transactions),
             &self.state,
+            &self.state,
         )? {
             match change {
                 FinalizationChange::Reward {
@@ -431,7 +446,7 @@ where
         let gas_used = receipts.last().map(|r| r.cumulative_gas_used).unwrap_or(0);
 
         if gas_used != self.header.gas_used {
-            info!("wron gas block {}, {:?}", self.header.number, receipts);
+            warn!("wrong gas block {}, {:?}", self.header.number, receipts);
             let transactions = receipts
                 .into_iter()
                 .enumerate()

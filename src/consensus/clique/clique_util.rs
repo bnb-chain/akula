@@ -68,6 +68,7 @@ pub fn parse_epoch_validators(bytes: &[u8]) -> Result<Vec<Address>, DuoError> {
         return Err(ParliaError::WrongHeaderExtraSignersLen {
             expected: 0,
             got: bytes.len() % ADDRESS_LENGTH,
+            msg: format!("parse_epoch_validators got wrong len!"),
         }
         .into());
     }

@@ -55,8 +55,8 @@ where
             .get(tables::Config, ())?
             .ok_or_else(|| format_err!("no chainspec found"))?;
         let buffer = Buffer::new(tx, None);
-        let finalization_changes =
-            engine_factory(None, chainspec, None)?.finalize(&header, &ommers, None, &buffer)?;
+        let finalization_changes = engine_factory(None, chainspec, None)?
+            .finalize(&header, &ommers, None, &buffer, &buffer)?;
 
         let mut block_reward = U256::ZERO;
         let mut uncle_reward = U256::ZERO;

@@ -269,10 +269,13 @@ impl HeaderReader for InMemoryState {
         Ok(None)
     }
 
-    fn read_header_by_number(&self, block_number: BlockNumber) -> anyhow::Result<Option<BlockHeader>> {
+    fn read_header_by_number(
+        &self,
+        block_number: BlockNumber,
+    ) -> anyhow::Result<Option<BlockHeader>> {
         if let Some(header_map) = self.headers.get(block_number.0 as usize) {
             if header_map.len() == 0 {
-                return Ok(None)
+                return Ok(None);
             }
             return Ok(header_map.values().next().cloned());
         }

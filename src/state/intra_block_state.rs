@@ -614,3 +614,23 @@ where
         Ok(U256::ZERO)
     }
 }
+
+impl<'r, S> HeaderReader for IntraBlockState<'r, S>
+where
+    S: StateReader + HeaderReader,
+{
+    fn read_header(
+        &self,
+        block_number: BlockNumber,
+        block_hash: H256,
+    ) -> anyhow::Result<Option<BlockHeader>> {
+        self.state.read_header(block_number, block_hash)
+    }
+
+    fn read_header_by_number(
+        &self,
+        block_number: BlockNumber,
+    ) -> anyhow::Result<Option<BlockHeader>> {
+        self.state.read_header_by_number(block_number)
+    }
+}
