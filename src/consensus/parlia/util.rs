@@ -1,5 +1,9 @@
-use crate::{consensus::parlia::*, crypto};
+use crate::{
+    consensus::parlia::{snapshot::ValidatorInfo, *},
+    crypto,
+};
 use ethereum_types::{Address, Public, H256};
+use fastrlp::Decodable;
 use lazy_static::lazy_static;
 use secp256k1::{
     ecdsa::{RecoverableSignature, RecoveryId},
@@ -7,7 +11,6 @@ use secp256k1::{
 };
 use sha3::{Digest, Keccak256};
 use std::{collections::HashSet, str::FromStr};
-use fastrlp::Decodable;
 
 /// How many cache with recovered signatures.
 const RECOVERED_CREATOR_CACHE_NUM: usize = 4096;
@@ -61,10 +64,11 @@ pub fn is_system_transaction(tx: &Message, sender: &Address, author: &Address) -
 
 /// parse_validators from bytes
 pub fn parse_epoch_validators(bytes: &[u8]) -> Result<Vec<Address>, DuoError> {
-    if bytes.len() % ADDRESS_LENGTH != 0 {
+    if bytes.len() % EXTRA_VALIDATOR_LEN != 0 {
         return Err(ParliaError::WrongHeaderExtraSignersLen {
             expected: 0,
-            got: bytes.len() % ADDRESS_LENGTH,
+            got: bytes.len() % EXTRA_VALIDATOR_LEN,
+            msg: format!("signers bytes len not correct!"),
         }
         .into());
     }
@@ -87,13 +91,14 @@ pub fn recover_creator(header: &BlockHeader, chain_id: ChainId) -> Result<Addres
 
     let extra_data = &header.extra_data;
 
-    if extra_data.len() < EXTRA_VANITY_LEN + SIGNATURE_LEN {
+    if extra_data.len() < EXTRA_VANITY_LEN + EXTRA_SEAL_LEN {
         return Err(ParliaError::WrongHeaderExtraLen {
-            expected: EXTRA_VANITY_LEN + SIGNATURE_LEN,
-            got: extra_data.len()
-        }.into());
+            expected: EXTRA_VANITY_LEN + EXTRA_SEAL_LEN,
+            got: extra_data.len(),
+        }
+        .into());
     }
-    let signature_offset = header.extra_data.len() - SIGNATURE_LEN;
+    let signature_offset = header.extra_data.len() - EXTRA_SEAL_LEN;
 
     let sig = &header.extra_data[signature_offset..signature_offset + 64];
     let rec = RecoveryId::from_i32(header.extra_data[signature_offset + 64] as i32)?;
@@ -128,43 +133,58 @@ pub fn is_similar_tx(actual: &Message, expect: &Message) -> bool {
 
 /// find header.block_number - count, block header
 pub fn find_ancient_header(
-    db: &dyn HeaderReader,
+    header_reader: &dyn HeaderReader,
     header: &BlockHeader,
     count: u64,
 ) -> Result<BlockHeader, DuoError> {
     let mut result = header.clone();
     for _ in 0..count {
-        result = db
-            .read_parent_header(&result)?
-            .ok_or_else(|| ParliaError::UnknownHeader {
+        result = header_reader.read_parent_header(&result)?.ok_or_else(|| {
+            ParliaError::UnknownHeader {
                 number: result.number,
                 hash: result.hash(),
-            })?;
+            }
+        })?;
     }
     Ok(result)
 }
 
 // verify_extra_len check header's extra length if valid
-pub fn verify_extra_len(header: &BlockHeader, chain_spec: &ChainSpec, epoch: u64) -> Result<(), DuoError> {
+pub fn verify_extra_len(
+    header: &BlockHeader,
+    chain_spec: &ChainSpec,
+    epoch: u64,
+) -> Result<(), DuoError> {
     let extra_len = header.extra_data.len();
-    if extra_len <= EXTRA_VANITY_LEN + EXTRA_SEAL_LEN {
+    if extra_len < EXTRA_VANITY_LEN + EXTRA_SEAL_LEN {
         return Err(ParliaError::WrongHeaderExtraLen {
             expected: EXTRA_VANITY_LEN + EXTRA_SEAL_LEN,
             got: extra_len,
-        }.into());
+        }
+        .into());
     }
 
     if header.number.0 % epoch != 0 {
-        return Ok(())
+        return Ok(());
     }
 
     // check if has correct some address in epoch chg, before boneh
     if !chain_spec.is_boneh(&header.number) {
-        if (extra_len - EXTRA_SEAL_LEN - EXTRA_VANITY_LEN) % EXTRA_VANITY_LEN != 0 {
+        if (extra_len - EXTRA_SEAL_LEN - EXTRA_VANITY_LEN) / EXTRA_VALIDATOR_LEN == 0 {
+            return Err(ParliaError::WrongHeaderExtraSignersLen {
+                expected: EXTRA_VANITY_LEN + EXTRA_SEAL_LEN + EXTRA_VALIDATOR_LEN,
+                got: extra_len,
+                msg: format!("signers empty in epoch change before boneh!"),
+            }
+            .into());
+        }
+        if (extra_len - EXTRA_SEAL_LEN - EXTRA_VANITY_LEN) % EXTRA_VALIDATOR_LEN != 0 {
             return Err(ParliaError::WrongHeaderExtraSignersLen {
                 expected: EXTRA_VANITY_LEN + EXTRA_SEAL_LEN,
                 got: extra_len,
-            }.into());
+                msg: format!("signers not correct in epoch change before boneh!"),
+            }
+            .into());
         }
 
         return Ok(());
@@ -172,12 +192,18 @@ pub fn verify_extra_len(header: &BlockHeader, chain_spec: &ChainSpec, epoch: u64
 
     // check if has correct BLS keys in epoch chg, after boneh
     let count = header.extra_data[EXTRA_VANITY_LEN_WITH_NUM_IN_BONEH - 1] as usize;
-    let expect = EXTRA_VANITY_LEN_WITH_NUM_IN_BONEH + EXTRA_SEAL_LEN + count * EXTRA_VALIDATOR_LEN_IN_BONEH;
+    let expect =
+        EXTRA_VANITY_LEN_WITH_NUM_IN_BONEH + EXTRA_SEAL_LEN + count * EXTRA_VALIDATOR_LEN_IN_BONEH;
     if count == 0 || extra_len < expect {
         return Err(ParliaError::WrongHeaderExtraSignersLen {
             expected: expect,
             got: extra_len,
-        }.into());
+            msg: format!(
+                "signers not correct in epoch change after boneh!, count: {}",
+                count
+            ),
+        }
+        .into());
     }
 
     Ok(())
@@ -189,12 +215,27 @@ pub fn verify_extra_len(header: &BlockHeader, chain_spec: &ChainSpec, epoch: u64
 ///
 /// On boneh fork, we introduce vote attestation into the header's extra field, so extra format is different from before.
 ///
+/// Validators Bytes not empty in epoch block, Vote Attestation may not empty in justified block.
+///
 /// Before boneh fork: |---Extra Vanity---|---Validators Bytes (or Empty)---|---Extra Seal---|
 ///
-/// After boneh fork:  |---Extra Vanity---|---Validators Number---|---Validators Bytes (or Empty)---|---Vote Attestation (or Empty)---|---Extra Seal---|
+/// Validators Number and Validators Bytes not empty in epoch block, Vote Attestation may not empty in justified block.
 ///
-pub fn get_validator_bytes_from_header<'a, 'b>(header: &'a BlockHeader, chain_spec: &'b ChainSpec, epoch: u64) -> anyhow::Result<&'a [u8]> {
+/// After boneh fork:  |---Extra Vanity---|---Validators Number(or Empty)---|---Validators Bytes (or Empty)---|---Vote Attestation (or Empty)---|---Extra Seal---|
+pub fn get_validator_bytes_from_header<'a, 'b>(
+    header: &'a BlockHeader,
+    chain_spec: &'b ChainSpec,
+    epoch: u64,
+) -> anyhow::Result<&'a [u8]> {
     verify_extra_len(header, chain_spec, epoch)?;
+
+    if header.number.0 % epoch != 0 {
+        return Err(ParliaError::NotInEpoch {
+            block: header.number,
+            err: format!("get_validator_bytes_from_header but not in epoch block!"),
+        }
+        .into());
+    }
     let extra_len = header.extra_data.len();
 
     if !chain_spec.is_boneh(&header.number) {
@@ -204,10 +245,37 @@ pub fn get_validator_bytes_from_header<'a, 'b>(header: &'a BlockHeader, chain_sp
     let count = header.extra_data[EXTRA_VANITY_LEN_WITH_NUM_IN_BONEH - 1] as usize;
     let start = EXTRA_VANITY_LEN_WITH_NUM_IN_BONEH;
     let end = start + count * EXTRA_VALIDATOR_LEN_IN_BONEH;
+
     return Ok(&header.extra_data[start..end]);
 }
 
-pub fn parse_validators_from_header(header: &BlockHeader, chain_spec: &ChainSpec, epoch: u64) -> anyhow::Result<(Vec<Address>, Option<Vec<BLSPublicKey>>)> {
+/// get_validator_len_from_header returns the validators len
+pub fn get_validator_len_from_header(
+    header: &BlockHeader,
+    chain_spec: &ChainSpec,
+    epoch: u64,
+) -> anyhow::Result<usize> {
+    verify_extra_len(header, chain_spec, epoch)?;
+    let extra_len = header.extra_data.len();
+
+    if !chain_spec.is_boneh(&header.number) {
+        return Ok(extra_len - EXTRA_VANITY_LEN - EXTRA_SEAL_LEN);
+    }
+
+    if header.number.0 % epoch != 0 {
+        return Ok(0);
+    }
+
+    // after boneh, when epoch header.extra_data[EXTRA_VANITY_LEN_WITH_NUM_IN_BONEH - 1] is validator size.
+    let count = header.extra_data[EXTRA_VANITY_LEN_WITH_NUM_IN_BONEH - 1] as usize;
+    return Ok(count * EXTRA_VALIDATOR_LEN_IN_BONEH);
+}
+
+pub fn parse_validators_from_header(
+    header: &BlockHeader,
+    chain_spec: &ChainSpec,
+    epoch: u64,
+) -> anyhow::Result<(Vec<Address>, Option<HashMap<Address, ValidatorInfo>>)> {
     let val_bytes = get_validator_bytes_from_header(header, chain_spec, epoch)?;
 
     if !chain_spec.is_boneh(&header.number) {
@@ -219,35 +287,44 @@ pub fn parse_validators_from_header(header: &BlockHeader, chain_spec: &ChainSpec
             vals.push(Address::from_slice(&val_bytes[start..end]));
         }
 
-        return Ok((vals, None))
+        return Ok((vals, None));
     }
 
     let count = val_bytes.len() / EXTRA_VALIDATOR_LEN_IN_BONEH;
     let mut vals = Vec::with_capacity(count);
-    let mut bls_keys = Vec::with_capacity(count);
+    let mut val_info_map = HashMap::with_capacity(count);
     for i in 0..count {
         let start = i * EXTRA_VALIDATOR_LEN_IN_BONEH;
         let end = start + EXTRA_VALIDATOR_LEN;
-        vals.push(Address::from_slice(&val_bytes[start..end]));
+        let addr = Address::from_slice(&val_bytes[start..end]);
+        vals.push(addr);
 
         let start = i * EXTRA_VALIDATOR_LEN_IN_BONEH + EXTRA_VALIDATOR_LEN;
-        let end = start + EXTRA_VALIDATOR_LEN_IN_BONEH;
-        let mut dst = [0; 48];
-        dst.copy_from_slice(&val_bytes[start..end]);
-        bls_keys.push(dst);
+        let end = i * EXTRA_VALIDATOR_LEN_IN_BONEH + EXTRA_VALIDATOR_LEN_IN_BONEH;
+        val_info_map.insert(
+            addr,
+            ValidatorInfo {
+                index: i + 1,
+                vote_addr: BLSPublicKey::from_slice(&val_bytes[start..end]),
+            },
+        );
     }
 
-    return Ok((vals, Some(bls_keys)))
+    return Ok((vals, Some(val_info_map)));
 }
 
 /// get_vote_attestation returns the vote attestation from the header's extra field
-pub fn get_vote_attestation_from_header(header: &BlockHeader, chain_spec: &ChainSpec, epoch: u64) -> Result<Option<VoteAttestation>, DuoError> {
+pub fn get_vote_attestation_from_header(
+    header: &BlockHeader,
+    chain_spec: &ChainSpec,
+    epoch: u64,
+) -> Result<Option<VoteAttestation>, DuoError> {
     verify_extra_len(header, chain_spec, epoch)?;
 
     let mut raw;
     let extra_len = header.extra_data.len();
     if header.number.0 % epoch != 0 {
-        raw = &header.extra_data[EXTRA_VANITY_LEN .. extra_len - EXTRA_SEAL_LEN]
+        raw = &header.extra_data[EXTRA_VANITY_LEN..extra_len - EXTRA_SEAL_LEN]
     } else {
         let count = header.extra_data[EXTRA_VANITY_LEN_WITH_NUM_IN_BONEH - 1] as usize;
         let start = EXTRA_VANITY_LEN_WITH_NUM_IN_BONEH + count * EXTRA_VALIDATOR_LEN_IN_BONEH;
@@ -264,6 +341,7 @@ pub fn get_vote_attestation_from_header(header: &BlockHeader, chain_spec: &Chain
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bitset::BitSet;
     use ethnum::u256;
     use hex_literal::hex;
 
@@ -297,5 +375,137 @@ mod tests {
             addr,
             Address::from_str("2a7cdd959bfe8d9487b2a43b33565295a698f7e2").unwrap()
         );
+    }
+
+    #[test]
+    fn test_bsc_creator_recover_with_base_fee() {
+        let header = &BlockHeader{
+            parent_hash: hex!("40857a8493d09dbbd90ec1652b76d08895b6619cc4bec4f7b271a5711bbe43ce").into(),
+            ommers_hash: hex!("1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347").into(),
+            beneficiary: hex!("68bcc47e7986bc68cb0bfa98e2be61a3f7b13457").into(),
+            state_root: hex!("450d60b65a4404ac4be9261a0b084f6f7b050d474433d8d8d5da28ec50a17743").into(),
+            transactions_root: hex!("56d0b0e345685373a31b51afb62deb5cdf866969b11351c6fd3474c42837dadf").into(),
+            receipts_root: hex!("8a0c9a49afb03778767f4f075bc650a6ddcae5aa3d62332abe02a85699f4bbbc").into(),
+            logs_bloom: hex!("08000000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000040000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000").into(),
+            difficulty: u256::new(2),
+            number: BlockNumber(1),
+            gas_limit: 39960939 as u64,
+            gas_used: 1507580 as u64,
+            timestamp: 1665284133 as u64,
+            extra_data: hex::decode("d98301010b846765746888676f312e31382e348664617277696e00004a9b5e4dfd87cf956e4a3707e3af971d393717f76e8b61208f00dafe34f378b6e7a6950513f40e32ebb26998f9d92e441b3e5fcbc131205669b6de522b51b50846c18a9301").unwrap().into(),
+            mix_hash: hex!("0000000000000000000000000000000000000000000000000000000000000000").into(),
+            nonce: hex!("0000000000000000").into(),
+            base_fee_per_gas: Some(u256::new(875000000_u128))
+        };
+        info!("test header {}:{}", header.number.0, header.hash());
+        assert_eq!(
+            header.hash(),
+            hex!("2ffb6bfbd956678a4c13a8b7280c108df1554880adda7ef08eb15b61813bb45b").into()
+        );
+        let addr = recover_creator(header, ChainId(714_u64)).unwrap();
+        assert_eq!(
+            addr,
+            Address::from_str("68bcc47e7986bc68cb0bfa98e2be61a3f7b13457").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_parse_validators() {
+        let header = BlockHeader {
+            number: BlockNumber(0),
+            extra_data: Bytes::from(<Vec<u8> as Into<Vec<u8>>>::into(hex!("00000000000000000000000000000000000000000000000000000000000000000568bcc47e7986bc68cb0bfa98e2be61a3f7b1345785e6972fc98cd3c81d64d40e325acfed44365b97a7567a27939c14dbc7512ddcf54cb1284eb637cfa308ae4e00cb55886baea1fb85b000bfe00edc273220f5e020f1088c8addebd6ef7609df215e006987040d0a643858f3a4d791beaa77177d67529160e645fac54f0d8acdcd5a088393cb6681d179e4f1ffeb30abf200c181ab83f917a1d4266889abcc45efe76bec679ca35c27adbd66fb9712a278e3c8530ab25cfaf997765aee574f5c5745dbb873dbf7e961684347a23ea8933ea51431247bbe5778ed8d16f75c7e1da1484f2b97137fb957daad064ca6cbe5b99549249ceb51f42e928ec091f94fed642ddffe3a9916769538decd0a9937bf0485c4d37ee8751e062b6ef6e211569b09488b198b20e24ad933b9af0a55a6d34a08e10b832a10f389154dc0dec79b63a38b79ea2f0d9f4fa664b3c06b1b2437cb58236f0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000").into())),
+            ..Default::default()
+        };
+        let chain_spec = mock_chain_sepc();
+        let (vals, val_info_map) = parse_validators_from_header(&header, &chain_spec, 200).unwrap();
+        let val_info_map = val_info_map.unwrap();
+        assert_eq!(
+            vec![
+                <Address as Into<Address>>::into(
+                    hex!("68bcc47e7986bc68cb0bfa98e2be61a3f7b13457").into()
+                ),
+                hex!("6baea1fb85b000bfe00edc273220f5e020f1088c").into(),
+                hex!("d179e4f1ffeb30abf200c181ab83f917a1d42668").into(),
+                hex!("a23ea8933ea51431247bbe5778ed8d16f75c7e1d").into(),
+                hex!("0485c4d37ee8751e062b6ef6e211569b09488b19").into(),
+            ],
+            vals
+        );
+
+        let bls_keys: Vec<BLSPublicKey> = vals
+            .iter()
+            .map(|x| val_info_map.get(x).unwrap().vote_addr)
+            .collect();
+        assert_eq!(vec![
+            <BLSPublicKey as Into<BLSPublicKey>>::into(hex!("85e6972fc98cd3c81d64d40e325acfed44365b97a7567a27939c14dbc7512ddcf54cb1284eb637cfa308ae4e00cb5588").into()),
+            hex!("8addebd6ef7609df215e006987040d0a643858f3a4d791beaa77177d67529160e645fac54f0d8acdcd5a088393cb6681").into(),
+            hex!("89abcc45efe76bec679ca35c27adbd66fb9712a278e3c8530ab25cfaf997765aee574f5c5745dbb873dbf7e961684347").into(),
+            hex!("a1484f2b97137fb957daad064ca6cbe5b99549249ceb51f42e928ec091f94fed642ddffe3a9916769538decd0a9937bf").into(),
+            hex!("8b20e24ad933b9af0a55a6d34a08e10b832a10f389154dc0dec79b63a38b79ea2f0d9f4fa664b3c06b1b2437cb58236f").into(),
+        ], bls_keys);
+    }
+
+    #[test]
+    fn test_parse_attestation() {
+        let header = BlockHeader {
+            number: BlockNumber(3),
+            extra_data: Bytes::from(<Vec<u8> as Into<Vec<u8>>>::into(hex!("d98301010b846765746888676f312e31382e348664617277696e00004a9b5e4df8aa1fb860adad9d38d885d17320694193adb7c00bbd8106510dbd34e22be7e2734453ecb8bd7eec5c73f277e6c17fab48a67b78680bdc2e731105c0d0e6026233c2456061f1015ebe14b0f1b7f09ecfd7167f860e130d642e16c2d88093331099abbc9c73f84480a040857a8493d09dbbd90ec1652b76d08895b6619cc4bec4f7b271a5711bbe43ce02a04945cfdbb71f49fe7ac9d114b06ff4680182d689a48ab0fbc9ead3308b6f52e8807bc668b22b7e389fa57b5c5e574b023a783ddd8dd1f87ae61e49e1c5b79eedab06896cda389eeb85ddf671d0ab17cbdc025c68d31a453ecefa2206f3473f75b200").into())),
+            ..Default::default()
+        };
+        let chain_spec = mock_chain_sepc();
+        let attestation = get_vote_attestation_from_header(&header, &chain_spec, 200)
+            .unwrap()
+            .unwrap();
+        println!("{:?}", attestation);
+        let vote_bit_set = BitSet::from_u64(attestation.vote_address_set);
+        assert_eq!(5, vote_bit_set.count());
+        assert_eq!(true, vote_bit_set.test(0));
+        assert_eq!(true, vote_bit_set.test(1));
+        assert_eq!(true, vote_bit_set.test(2));
+        assert_eq!(true, vote_bit_set.test(3));
+        assert_eq!(true, vote_bit_set.test(4));
+        assert_eq!(false, vote_bit_set.test(5));
+    }
+
+    fn mock_chain_sepc() -> ChainSpec {
+        let chain_spec = ChainSpec {
+            name: Default::default(),
+            consensus: ConsensusParams {
+                seal_verification: SealVerificationParams::Parlia {
+                    period: 3,
+                    epoch: 200,
+                },
+                eip1559_block: None,
+            },
+            upgrades: Upgrades {
+                boneh: Some(BlockNumber(0)),
+                ..Default::default()
+            },
+            params: Params {
+                chain_id: Default::default(),
+                network_id: Default::default(),
+                additional_forks: Default::default(),
+            },
+            genesis: Genesis {
+                number: Default::default(),
+                author: Default::default(),
+                gas_limit: 0,
+                timestamp: 0,
+                seal: Seal::Parlia {
+                    vanity: Default::default(),
+                    score: BlockScore::NoTurn,
+                    signers: vec![],
+                    bls_pub_keys: None,
+                },
+                base_fee_per_gas: None,
+            },
+            contracts: Default::default(),
+            balances: Default::default(),
+            p2p: P2PParams {
+                bootnodes: vec![],
+                dns: None,
+            },
+        };
+        chain_spec
     }
 }

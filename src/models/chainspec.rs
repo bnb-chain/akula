@@ -473,6 +473,7 @@ pub enum Seal {
         vanity: H256,
         score: BlockScore,
         signers: Vec<Address>,
+        bls_pub_keys: Option<Vec<BLSPublicKey>>,
     },
     Clique {
         vanity: H256,
@@ -494,14 +495,37 @@ impl Seal {
         match self {
             Seal::Ethash { vanity, .. } => vanity.clone(),
             Seal::Parlia {
-                vanity, signers, ..
+                vanity,
+                signers,
+                bls_pub_keys,
+                ..
             } => {
                 let mut v = Vec::new();
                 v.extend_from_slice(vanity.as_bytes());
-                for signer in signers {
-                    v.extend_from_slice(signer.as_bytes());
+                if let Some(bls_pub_keys) = bls_pub_keys {
+                    assert_eq!(
+                        signers.len(),
+                        bls_pub_keys.len(),
+                        "signers and bls_keys has different length!"
+                    );
+                    assert!(
+                        signers.len() <= u8::MAX as usize,
+                        "signers size too big, cannot save as u8!"
+                    );
+                    // set validator num
+                    v.extend_from_slice(&(signers.len() as u8).to_be_bytes());
+                    // set validators and bls public keys
+                    for i in 0..signers.len() {
+                        v.extend_from_slice(signers[i].as_bytes());
+                        v.extend_from_slice(bls_pub_keys[i].as_bytes());
+                    }
+                } else {
+                    for signer in signers {
+                        v.extend_from_slice(signer.as_bytes());
+                    }
                 }
                 v.extend_from_slice(&[0; 65]);
+
                 v.into()
             }
             Seal::Clique {

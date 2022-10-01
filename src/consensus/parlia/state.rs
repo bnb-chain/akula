@@ -1,19 +1,17 @@
-use std::collections::HashMap;
 use super::*;
-use types::*;
+use std::collections::HashMap;
 
 #[derive(Debug)]
 pub struct ParliaNewBlockState {
-    next_validators: Option<(Vec<Address>, HashMap<Address, BLSPublicKey>)>
+    next_validators: Option<(Vec<Address>, HashMap<Address, BLSPublicKey>)>,
 }
 
 impl ParliaNewBlockState {
-
     /// instance parlia state with validators, guarantee address list is sorted by Ascending
-    pub fn new(next_validators: Option<(Vec<Address>, HashMap<Address, BLSPublicKey>)>) -> ParliaNewBlockState {
-        ParliaNewBlockState {
-            next_validators
-        }
+    pub fn new(
+        next_validators: Option<(Vec<Address>, HashMap<Address, BLSPublicKey>)>,
+    ) -> ParliaNewBlockState {
+        ParliaNewBlockState { next_validators }
     }
 
     pub fn get_validators(&self) -> Option<&(Vec<Address>, HashMap<Address, BLSPublicKey>)> {

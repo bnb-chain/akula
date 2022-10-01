@@ -590,10 +590,16 @@ impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, B: HeaderReader + StateReader> 
 
     fn get_tx_context(&mut self) -> Result<TxContext, StatusCode> {
         let base_fee_per_gas = self.header.base_fee_per_gas.unwrap_or(U256::ZERO);
-        let tx_gas_price = self
-            .message
-            .effective_gas_price(base_fee_per_gas)
-            .ok_or(StatusCode::InternalError("tx gas price too low"))?;
+        // notice: parlia allow 0 gas price for systemTx
+        let tx_gas_price = if !self.block_spec.consensus.is_parlia() {
+            self.message
+                .effective_gas_price(base_fee_per_gas)
+                .ok_or(StatusCode::InternalError("tx gas price too low"))?
+        } else {
+            self.message
+                .effective_gas_price(base_fee_per_gas)
+                .unwrap_or(U256::ZERO)
+        };
         let tx_origin = self.sender;
         let block_coinbase = self.beneficiary;
         let block_number = self.header.number.0;

@@ -374,6 +374,7 @@ impl Consensus for Clique {
         _ommers: &[BlockHeader],
         _transactions: Option<&Vec<MessageWithSender>>,
         _state: &dyn StateReader,
+        _header_reader: &dyn HeaderReader,
     ) -> anyhow::Result<Vec<FinalizationChange>> {
         let clique_block = CliqueBlock::from_header(block)?;
 

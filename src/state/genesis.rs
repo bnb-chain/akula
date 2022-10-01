@@ -6,6 +6,7 @@ use crate::{
 };
 use anyhow::format_err;
 use tempfile::TempDir;
+use tracing::*;
 
 #[derive(Clone, Debug)]
 pub struct GenesisState {
@@ -30,7 +31,7 @@ impl GenesisState {
                     .try_get_code_with_hash(block_number, &address)
                     .map(|(hash, _)| hash)
                     .unwrap_or(EMPTY_HASH);
-                println!(
+                debug!(
                     "initial_state address{:?}, code_hash:{:?}",
                     address, code_hash
                 );
@@ -111,14 +112,21 @@ where
         for (&address, &balance) in balances {
             let code_hash =
                 if let Some((hash, code)) = chainspec.try_get_code_with_hash(genesis, &address) {
+                    debug!(
+                        "initialize_genesis address{:?}, update code:{:?}",
+                        address,
+                        code.len()
+                    );
                     state_buffer.update_code(hash, code)?;
                     hash
                 } else {
                     EMPTY_HASH
                 };
-            println!(
-                "initialize_genesis address{:?}, code_hash:{:?}",
-                address, code_hash
+            debug!(
+                "initialize_genesis address{:?}, code_hash:{:?}, balance: {}",
+                address,
+                code_hash,
+                hex::encode(&balance.to_be_bytes())
             );
             state_buffer.update_account(
                 address,
@@ -158,7 +166,7 @@ where
         transactions_root: EMPTY_ROOT,
     };
     let block_hash = header.hash();
-    println!("initialize_genesis block_hash:{:?}", block_hash);
+    info!("initialize_genesis block_hash:{:?}", block_hash);
 
     txn.set(tables::Header, genesis, header.clone())?;
     txn.set(tables::CanonicalHeader, genesis, block_hash)?;

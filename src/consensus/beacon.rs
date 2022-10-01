@@ -246,6 +246,7 @@ impl Consensus for BeaconConsensus {
         ommers: &[crate::models::BlockHeader],
         _transactions: Option<&Vec<MessageWithSender>>,
         _state: &dyn StateReader,
+        _header_reader: &dyn HeaderReader,
     ) -> anyhow::Result<Vec<super::FinalizationChange>> {
         let block_number = header.number;
         let block_reward = self.block_reward.for_block(block_number);

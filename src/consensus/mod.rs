@@ -16,7 +16,9 @@ use crate::{
 use anyhow::{anyhow, bail};
 use derive_more::{Display, From};
 use ethnum::u256;
+use fastrlp::DecodeError;
 use mdbx::{EnvironmentKind, TransactionKind};
+use milagro_bls::AmclError;
 use parking_lot::Mutex;
 use std::{
     collections::BTreeSet,
@@ -25,8 +27,6 @@ use std::{
     sync::Arc,
     time::SystemTimeError,
 };
-use fastrlp::DecodeError;
-use milagro_bls::AmclError;
 use tokio::sync::watch;
 use tracing::*;
 
@@ -123,6 +123,7 @@ pub trait Consensus: Debug + Send + Sync + 'static {
         ommers: &[BlockHeader],
         transactions: Option<&Vec<MessageWithSender>>,
         state: &dyn StateReader,
+        header_reader: &dyn HeaderReader,
     ) -> anyhow::Result<Vec<FinalizationChange>>;
 
     /// See YP Section 11.3 "Reward Application".
@@ -161,7 +162,7 @@ pub trait Consensus: Debug + Send + Sync + 'static {
 
     fn prepare(
         &mut self,
-        _state: &dyn StateReader,
+        _header_reader: &dyn HeaderReader,
         _header: &mut BlockHeader,
     ) -> anyhow::Result<(), DuoError> {
         Ok(())
@@ -169,7 +170,7 @@ pub trait Consensus: Debug + Send + Sync + 'static {
 
     /// To be overridden for consensus validators' snap.
     fn snapshot(
-        &mut self,
+        &self,
         _snap_db: &dyn SnapDB,
         _header_db: &dyn HeaderReader,
         _block_number: BlockNumber,
@@ -267,6 +268,7 @@ pub enum ParliaError {
     WrongHeaderExtraSignersLen {
         expected: usize,
         got: usize,
+        msg: String,
     },
     WrongHeaderSigner {
         number: BlockNumber,
@@ -292,7 +294,10 @@ pub enum ParliaError {
         expect: Vec<Address>,
         err: String,
     },
-    EpochChgCallErr,
+    NotInEpoch {
+        block: BlockNumber,
+        err: String,
+    },
     SnapFutureBlock {
         expect: BlockNumber,
         got: BlockNumber,
@@ -578,7 +583,7 @@ impl From<AmclError> for DuoError {
 pub fn pre_validate_transaction(
     txn: &Message,
     canonical_chain_id: ChainId,
-    base_fee_per_gas: Option<U256>,
+    _base_fee_per_gas: Option<U256>,
 ) -> Result<(), ValidationError> {
     if let Some(chain_id) = txn.chain_id() {
         if chain_id != canonical_chain_id {
@@ -586,11 +591,13 @@ pub fn pre_validate_transaction(
         }
     }
 
-    if let Some(base_fee_per_gas) = base_fee_per_gas {
-        if txn.max_fee_per_gas() < base_fee_per_gas {
-            return Err(ValidationError::MaxFeeLessThanBase);
-        }
-    }
+    // TODO need pass in system transaction
+    // info!("tx {:?} base fee {:?}, tx {} max1 {} max2 {}", txn.hash(), base_fee_per_gas, txn.max_fee_per_gas(), txn.max_priority_fee_per_gas(), txn.max_fee_per_gas());
+    // if let Some(base_fee_per_gas) = base_fee_per_gas {
+    //     if txn.max_fee_per_gas() < base_fee_per_gas {
+    //         return Err(ValidationError::MaxFeeLessThanBase);
+    //     }
+    // }
 
     // https://github.com/ethereum/EIPs/pull/3594
     if txn.max_priority_fee_per_gas() > txn.max_fee_per_gas() {

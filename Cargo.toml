@@ -17,7 +17,7 @@ async-recursion = "1"
 async-stream = "0.3"
 async-trait = "0.1"
 auto_impl = "1"
-bit-set = "0.5.3"
+bitset = "0.1.2"
 block-padding = "0.3"
 byte-unit = "4"
 byteorder = "1"
@@ -63,6 +63,7 @@ fastrlp = { version = "0.2", features = [
   "std",
 ] }
 fdlimit = "0.2"
+fixed-hash = "0.7.0"
 futures = { version = "0.3", features = ["unstable"] }
 futures-intrusive = "0.4"
 gen-iter = "0.2"
@@ -79,6 +80,7 @@ igd = { git = "https://github.com/stevefan1999-personal/rust-igd", features = [
   "aio",
   "tokio1",
 ] }
+impl-serde = "0.3.1"
 impls = "1"
 itertools = "0.10"
 jsonrpsee = { version = "0.15", features = ["server"] }

@@ -78,7 +78,10 @@ where
     }
 
     if config.is_on_boneh(block_number) {
-        apply_system_contract_upgrade(BONEH_UPGRADE_CONFIG.get(&config.params.chain_id.0).unwrap(), statedb)?;
+        apply_system_contract_upgrade(
+            BONEH_UPGRADE_CONFIG.get(&config.params.chain_id.0).unwrap(),
+            statedb,
+        )?;
     }
 
     Ok(())

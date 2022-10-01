@@ -1,6 +1,7 @@
 mod account;
 mod block;
 mod bloom;
+mod bls;
 mod chainspec;
 mod config;
 mod header;
@@ -11,7 +12,7 @@ mod transaction;
 pub mod util;
 
 pub use self::{
-    account::*, block::*, bloom::*, chainspec::*, config::*, header::*, log::*, receipt::*,
+    account::*, block::*, bloom::*, bls::*, chainspec::*, config::*, header::*, log::*, receipt::*,
     revision::*, transaction::*,
 };
 
