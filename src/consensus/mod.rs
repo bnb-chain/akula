@@ -7,9 +7,8 @@ pub mod parlia;
 
 use self::fork_choice_graph::ForkChoiceGraph;
 pub use self::{base::*, beacon::*, blockchain::*, clique::*, parlia::*};
-use crate::kv::tables;
 use crate::{
-    kv::{mdbx::*, MdbxWithDirHandle},
+    kv::{mdbx::*, tables, MdbxWithDirHandle},
     models::*,
     state::{IntraBlockState, StateReader},
     BlockReader, HeaderReader,

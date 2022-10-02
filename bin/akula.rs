@@ -379,8 +379,9 @@ fn main() -> anyhow::Result<()> {
                 });
 
                 // staged sync setup
-                let mut can_mine = true;
+                let mut can_mine = false;
                 if opt.mine {
+                    can_mine = true;
                     if opt.exit_after_sync {
                         warn!(
                             "Conflicting options: --exit-after-sync is set, will not enable mining"
