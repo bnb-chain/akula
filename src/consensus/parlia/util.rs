@@ -1,6 +1,5 @@
 use crate::{consensus::parlia::*, crypto};
-use ethereum::*;
-use ethereum_types::{Address, H256};
+use ethereum_types::{Address, Public, H256};
 use lazy_static::lazy_static;
 use secp256k1::{
     ecdsa::{RecoverableSignature, RecoveryId},

@@ -7,6 +7,7 @@ pub mod parlia;
 
 use self::fork_choice_graph::ForkChoiceGraph;
 pub use self::{base::*, beacon::*, blockchain::*, clique::*, parlia::*};
+use crate::kv::tables;
 use crate::{
     kv::{mdbx::*, MdbxWithDirHandle},
     models::*,
@@ -25,7 +26,6 @@ use std::{
     sync::Arc,
     time::SystemTimeError,
 };
-use crate::kv::tables;
 use tokio::sync::watch;
 use tracing::*;
 
@@ -497,6 +497,12 @@ impl From<CliqueError> for DuoError {
 impl From<ParliaError> for DuoError {
     fn from(err: ParliaError) -> Self {
         DuoError::Validation(ValidationError::ParliaError(err))
+    }
+}
+
+impl From<ethabi::Error> for DuoError {
+    fn from(err: ethabi::Error) -> Self {
+        DuoError::Internal(anyhow::Error::from(err))
     }
 }
 

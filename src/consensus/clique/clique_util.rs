@@ -1,7 +1,6 @@
 use crate::{consensus::*, crypto};
 use bytes::{Buf, Bytes};
-use ethereum::*;
-use ethereum_types::{Address, H256};
+use ethereum_types::{Address, Public, H256};
 use lazy_static::lazy_static;
 use lru_cache::LruCache;
 use parking_lot::RwLock;

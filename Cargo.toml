@@ -98,7 +98,7 @@ parking_lot = "0.12"
 primitive-types = { version = "0.12", default-features = false, features = [
   "rlp",
   "rustc-hex",
-] }
+]}
 rand = "0.8"
 rayon = "1"
 ripemd = "0.1"

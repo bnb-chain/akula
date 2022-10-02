@@ -24,7 +24,6 @@ use ethabi::FunctionOutputDecoder;
 use ethabi_contract::use_contract;
 use ethereum_types::{Address, H256};
 // use primitive_types;
-use ethabi_contract::use_contract;
 use lru_cache::LruCache;
 use parking_lot::RwLock;
 use std::{collections::BTreeSet, time::SystemTime};
