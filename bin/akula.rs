@@ -550,7 +550,7 @@ fn main() -> anyhow::Result<()> {
                             nonce: H64::zero(),
                             base_fee_per_gas: None,
                         },
-                        ommers: vec![],
+                        ommers: Default::default(),
                         transactions: vec![],
                     };
                     let mining_block_mutex = Arc::new(Mutex::new(mining_block));

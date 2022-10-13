@@ -160,7 +160,7 @@ where
     let block_hash = header.hash();
     println!("initialize_genesis block_hash:{:?}", block_hash);
 
-    txn.set(tables::Header, (genesis, block_hash), header.clone())?;
+    txn.set(tables::Header, genesis, header.clone())?;
     txn.set(tables::CanonicalHeader, genesis, block_hash)?;
     txn.set(tables::HeaderNumber, block_hash, genesis)?;
     txn.set(tables::HeadersTotalDifficulty, genesis, header.difficulty)?;

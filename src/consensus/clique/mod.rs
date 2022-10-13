@@ -12,7 +12,7 @@ use crate::{
     kv::{mdbx::*, tables},
     models::{
         Block, BlockHeader, BlockNumber, ChainConfig, ChainId, ChainSpec, MessageWithSender,
-        Receipt, Seal,
+        Receipt, Seal, EMPTY_LIST_HASH,
     },
     state::{IntraBlockState, StateReader},
     BlockReader, HeaderReader,

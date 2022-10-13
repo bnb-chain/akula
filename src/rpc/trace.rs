@@ -1,5 +1,4 @@
 use super::helpers;
-use crate::consensus::is_parlia;
 use crate::{
     bitmapdb,
     consensus::engine_factory,

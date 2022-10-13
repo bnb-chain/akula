@@ -251,7 +251,6 @@ where
                 td += header.difficulty;
 
                 cursor_header_number.put(hash, block_number)?;
-                cursor_header.append(block_number, header)?;
                 cursor_canonical.append(block_number, hash)?;
                 cursor_td.append(block_number, td)?;
 
@@ -740,7 +739,7 @@ impl HeaderDownload {
             }
             parent_header = header;
             cursor_header
-                .put((header.number, headers[i].0), header.clone())
+                .put(header.number, header.clone())
                 .map_err(|e| {
                     warn!(
                         "Rejected bad block header ({hash:?}) because txn put header err: ({e:?})"

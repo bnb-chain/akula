@@ -4,7 +4,6 @@ use crate::{
 };
 use ethereum_types::{Address, H256};
 use ethnum::U256;
-use primitive_types::H256;
 use std::collections::BTreeMap;
 use tracing::*;
 

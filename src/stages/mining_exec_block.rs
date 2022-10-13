@@ -144,9 +144,9 @@ fn execute_mining_blocks<E: EnvironmentKind>(
         .get(tables::CanonicalHeader, block_number)?
         .ok_or_else(|| format_err!("No canonical hash found for block {}", block_number))?;
     let header = tx
-        .get(tables::Header, (block_number, block_hash))?
+        .get(tables::Header, block_number)?
         .ok_or_else(|| format_err!("Header not found: {}/{:?}", block_number, block_hash))?;
-    let block = accessors::chain::block_body::read_with_senders(tx, block_hash, block_number)?
+    let block = accessors::chain::block_body::read_with_senders(tx, block_number)?
         .ok_or_else(|| format_err!("Block body not found: {}/{:?}", block_number, block_hash))?;
 
     let block_spec = chain_config.collect_block_spec(block_number);
@@ -203,7 +203,7 @@ where
 {
     let mut cursor = tx.cursor(tables::Header)?;
     Ok(match cursor.seek(number)? {
-        Some(((found_number, _), header)) if found_number == number => header,
+        Some((found_number, header)) if found_number == number => header,
         _ => bail!("Expected header at block height {} not found.", number.0),
     })
 }

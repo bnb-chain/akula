@@ -13,6 +13,7 @@ use crate::{
     StageId,
 };
 use anyhow::bail;
+use arrayvec::ArrayVec;
 use async_trait::async_trait;
 use bytes::Bytes;
 use cipher::typenum::int;
@@ -35,7 +36,7 @@ pub const DAOFORKEXTRARANG: i32 = 10;
 #[derive(Debug)]
 pub struct MiningBlock {
     pub header: BlockHeader,
-    pub ommers: Vec<BlockHeader>,
+    pub ommers: ArrayVec<BlockHeader, 2>,
     pub transactions: Vec<MessageWithSignature>,
 }
 
@@ -93,7 +94,7 @@ where
                 nonce: H64::zero(),
                 base_fee_per_gas: None,
             },
-            ommers: vec![],
+            ommers: Default::default(),
             transactions: vec![],
         };
         let mining_block_mutex = Arc::new(Mutex::new(mining_block));
@@ -169,7 +170,7 @@ where
 {
     let mut cursor = tx.cursor(tables::Header)?;
     Ok(match cursor.seek(number)? {
-        Some(((found_number, _), header)) if found_number == number => header,
+        Some((found_number, header)) if found_number == number => header,
         _ => bail!("Expected header at block height {} not found.", number.0),
     })
 }

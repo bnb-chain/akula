@@ -5,6 +5,7 @@ use crate::{
     p2p::types::{BlockId, GetBlockHeadersParams},
 };
 use anyhow::format_err;
+use arrayvec::ArrayVec;
 use mdbx::EnvironmentKind;
 use std::fmt::Debug;
 
@@ -24,7 +25,7 @@ impl Stash for () {
     fn get_block(&self, _: H256) -> anyhow::Result<Block> {
         let header = BlockHeader::default();
         let partial_header = PartialHeader::from(header);
-        let block = Block::new(partial_header, vec![], vec![]);
+        let block = Block::new(partial_header, vec![], Default::default());
         Ok(block)
     }
 }
@@ -93,8 +94,8 @@ where
             .get(tables::HeaderNumber, hash)?
             .ok_or_else(|| format_err!("No canonical hash found for block {}", hash))?;
 
-        let header = txn.get(tables::Header, (number, hash))?.unwrap();
-        let body = chain::block_body::read_without_senders(&txn, hash, number)?.unwrap();
+        let header = txn.get(tables::Header, number)?.unwrap();
+        let body = chain::block_body::read_without_senders(&txn, number)?.unwrap();
 
         let partial_header = PartialHeader::from(header.clone());
 
