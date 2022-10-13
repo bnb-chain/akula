@@ -270,13 +270,14 @@ impl BlockHeader {
         rlp_head
     }
 
-    fn rlp_header_with_chain_id(&self) -> Header {
+    fn rlp_header_with_chain_id(&self, chain_id: u64) -> Header {
         let mut rlp_head = Header {
             list: true,
             payload_length: 0,
         };
 
-        rlp_head.payload_length += 1; // chain_id
+        // add chain_id make more security
+        rlp_head.payload_length += chain_id.length(); // chain_id
         rlp_head.payload_length += KECCAK_LENGTH + 1; // parent_hash
         rlp_head.payload_length += KECCAK_LENGTH + 1; // ommers_hash
         rlp_head.payload_length += ADDRESS_LENGTH + 1; // beneficiary
@@ -294,10 +295,7 @@ impl BlockHeader {
         rlp_head.payload_length += KECCAK_LENGTH + 1; // mix_hash
         rlp_head.payload_length += 8 + 1; // nonce
 
-        if let Some(base_fee_per_gas) = self.base_fee_per_gas {
-            rlp_head.payload_length += base_fee_per_gas.length();
-        }
-
+        //bsc don’t need basfee for header rlp encode
         rlp_head
     }
 }
@@ -431,6 +429,10 @@ impl BlockHeader {
         keccak256(&out[..])
     }
 
+    /// hash_with_chain_id
+    /// It’s a dedicated method for bsc’s header rlp encode.
+    /// add chain_id in header encode make more security.
+    /// ignore baseFee encode in bsc rlp encode.
     #[must_use]
     pub fn hash_with_chain_id(&self, chain_id: u64) -> H256 {
         let mut out = BytesMut::new();
@@ -439,7 +441,7 @@ impl BlockHeader {
     }
 
     fn encode_with_chain_id(&self, out: &mut dyn BufMut, chain_id: u64) {
-        self.rlp_header_with_chain_id().encode(out);
+        self.rlp_header_with_chain_id(chain_id).encode(out);
         Encodable::encode(&chain_id, out);
         Encodable::encode(&self.parent_hash, out);
         Encodable::encode(&self.ommers_hash, out);
@@ -456,9 +458,6 @@ impl BlockHeader {
         Encodable::encode(&self.extra_data, out);
         Encodable::encode(&self.mix_hash, out);
         Encodable::encode(&self.nonce, out);
-        if let Some(base_fee_per_gas) = self.base_fee_per_gas {
-            Encodable::encode(&base_fee_per_gas, out);
-        }
     }
     #[must_use]
     pub fn truncated_hash(&self) -> H256 {
