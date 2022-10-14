@@ -39,13 +39,13 @@ struct HeaderFlags {
 
     difficulty_len: B5,
     block_number_len: B3,
-    gas_limit_len: B3,
-    gas_used_len: B3,
+    gas_limit_len: B4,
+    gas_used_len: B4,
     timestamp_len: B3,
     base_fee_per_gas_len: B5,
 
     #[skip]
-    unused: B4,
+    unused: B2,
 }
 
 impl BlockHeader {

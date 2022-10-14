@@ -216,8 +216,8 @@ pub struct LegacyMessageFlags {
     is_call: bool,
     nonce_len: B3,
     gas_price_len: B5,
-    gas_limit_len: B3,
-    value_len: B5,
+    gas_limit_len: B4,
+    value_len: B4,
 }
 
 #[bitfield]
@@ -230,8 +230,8 @@ pub struct EIP2930MessageFlags {
     is_call: bool,
     nonce_len: B3,
     gas_price_len: B5,
-    gas_limit_len: B3,
-    value_len: B5,
+    gas_limit_len: B4,
+    value_len: B4,
     access_list_size_len: B3,
 
     #[skip]
@@ -249,8 +249,8 @@ pub struct EIP1559MessageFlags {
     nonce_len: B3,
     max_priority_fee_per_gas_len: B5,
     max_fee_per_gas_len: B5,
-    gas_limit_len: B3,
-    value_len: B5,
+    gas_limit_len: B4,
+    value_len: B4,
     access_list_size_len: B3,
 }
 
