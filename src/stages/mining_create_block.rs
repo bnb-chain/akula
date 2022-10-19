@@ -99,7 +99,7 @@ where
         };
         let mining_block_mutex = Arc::new(Mutex::new(mining_block));
         self.mining_block = Arc::clone(&mining_block_mutex);
-        let parent_number = input.stage_progress.unwrap();
+        let parent_number = input.stage_progress.unwrap_or(BlockNumber(0));
         let parent_header = get_header(tx, parent_number)?;
 
         // TODO, complete the remaining tx related part after txpool ready.

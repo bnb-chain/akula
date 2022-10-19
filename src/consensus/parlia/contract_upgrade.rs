@@ -22,18 +22,21 @@ pub fn upgrade_build_in_system_contract<'r, S>(
 where
     S: StateReader + HeaderReader,
 {
+    let empty_config: Vec<UpgradeConfig> = vec![];
     if config.is_on_ramanujan(block_number) {
         apply_system_contract_upgrade(
             RAMANUJAN_UPGRADE_CONFIG
                 .get(&config.params.chain_id.0)
-                .unwrap(),
+                .unwrap_or(&empty_config),
             statedb,
         )?;
     }
 
     if config.is_on_niels(block_number) {
         apply_system_contract_upgrade(
-            NIELS_UPGRADE_CONFIG.get(&config.params.chain_id.0).unwrap(),
+            NIELS_UPGRADE_CONFIG
+                .get(&config.params.chain_id.0)
+                .unwrap_or(&empty_config),
             statedb,
         )?;
     }
@@ -42,28 +45,34 @@ where
         apply_system_contract_upgrade(
             MIRRORSYNC_UPGRADE_CONFIG
                 .get(&config.params.chain_id.0)
-                .unwrap(),
+                .unwrap_or(&empty_config),
             statedb,
         )?;
     }
 
     if config.is_on_bruno(block_number) {
         apply_system_contract_upgrade(
-            BRUNO_UPGRADE_CONFIG.get(&config.params.chain_id.0).unwrap(),
+            BRUNO_UPGRADE_CONFIG
+                .get(&config.params.chain_id.0)
+                .unwrap_or(&empty_config),
             statedb,
         )?;
     }
 
     if config.is_on_euler(block_number) {
         apply_system_contract_upgrade(
-            EULER_UPGRADE_CONFIG.get(&config.params.chain_id.0).unwrap(),
+            EULER_UPGRADE_CONFIG
+                .get(&config.params.chain_id.0)
+                .unwrap_or(&empty_config),
             statedb,
         )?;
     }
 
     if config.is_on_gibbs(block_number) {
         apply_system_contract_upgrade(
-            GIBBS_UPGRADE_CONFIG.get(&config.params.chain_id.0).unwrap(),
+            GIBBS_UPGRADE_CONFIG
+                .get(&config.params.chain_id.0)
+                .unwrap_or(&empty_config),
             statedb,
         )?;
     }
