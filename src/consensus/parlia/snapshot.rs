@@ -1,4 +1,7 @@
-use crate::{consensus::parlia::*, models::BLSPublicKey};
+use crate::{
+    consensus::parlia::{vote::VoteData, *},
+    models::BLSPublicKey,
+};
 use ethereum_types::Address;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};

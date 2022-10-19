@@ -1,7 +1,11 @@
-use super::*;
-use crate::crypto::keccak256;
+use crate::{
+    consensus::{parlia::vote::ParliaVoteError, DuoError},
+    crypto::keccak256,
+    models::{BLSPublicKey, BLSSignature, BlockNumber, H256, KECCAK_LENGTH},
+};
 use bytes::{BufMut, Bytes, BytesMut};
 use fastrlp::*;
+use milagro_bls::{AmclError, PublicKey, Signature};
 use serde::{Deserialize, Serialize};
 
 /// max attestation extra length
@@ -78,6 +82,79 @@ impl Decodable for VoteData {
     }
 }
 
+/// VoteEnvelope a signle vote from validator.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VoteEnvelope {
+    pub vote_address: BLSPublicKey,
+    pub signature: BLSSignature,
+    // the vote for fast finality
+    pub data: VoteData,
+}
+
+impl Encodable for VoteEnvelope {
+    fn encode(&self, out: &mut dyn BufMut) {
+        self.rlp_header().encode(out);
+        Encodable::encode(&self.vote_address, out);
+        Encodable::encode(&self.signature, out);
+        Encodable::encode(&self.data, out);
+    }
+
+    fn length(&self) -> usize {
+        let rlp_head = self.rlp_header();
+        length_of_length(rlp_head.payload_length) + rlp_head.payload_length
+    }
+}
+
+impl Decodable for VoteEnvelope {
+    fn decode(buf: &mut &[u8]) -> Result<Self, DecodeError> {
+        let rlp_head = Header::decode(buf)?;
+        if !rlp_head.list {
+            return Err(DecodeError::UnexpectedString);
+        }
+        let vote_address = Decodable::decode(buf)?;
+        let signature = Decodable::decode(buf)?;
+        let data = Decodable::decode(buf)?;
+
+        Ok(Self {
+            vote_address,
+            signature,
+            data,
+        })
+    }
+}
+
+impl VoteEnvelope {
+    fn rlp_header(&self) -> Header {
+        let mut rlp_head = Header {
+            list: true,
+            payload_length: 0,
+        };
+
+        rlp_head.payload_length += self.vote_address.length(); // vote_address
+        rlp_head.payload_length += self.signature.length(); // signature
+        rlp_head.payload_length += self.data.length(); // data
+
+        rlp_head
+    }
+
+    /// hash, return VoteEnvelope's hash
+    pub fn hash(&self) -> H256 {
+        let mut out = BytesMut::new();
+        Encodable::encode(self, &mut out);
+        keccak256(&out[..])
+    }
+
+    /// verify, check if VoteEnvelope's signature is valid
+    pub fn verify(&self) -> anyhow::Result<(), DuoError> {
+        let bls_key = PublicKey::from_bytes(&self.vote_address[..])?;
+        let sig = Signature::from_bytes(&self.signature[..])?;
+        if !sig.verify(&self.data.hash()[..], &bls_key) {
+            return Err(ParliaVoteError::InvalidVoteSig.into());
+        }
+        Ok(())
+    }
+}
+
 /// VoteAttestation represents the votes of super majority validators.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VoteAttestation {
@@ -145,6 +222,7 @@ impl VoteAttestation {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{consensus::parlia::vote::signer::VoteSigner, models::BLSPrivateKey};
     use hex_literal::hex;
 
     #[test]
@@ -182,5 +260,29 @@ mod tests {
         let expect: H256 =
             hex!("095db9c86230a3be933d197e5188d86d3d7107a09f8cd2b616e0cf253525aebc").into();
         assert_eq!(expect, vote_data.hash())
+    }
+
+    #[test]
+    fn check_vote_envelope_hash() {
+        let prv_key: BLSPrivateKey =
+            hex!("493492773ec57b4e0c017f9c9430fed00f7efc1c11260516d24e5df9233f1e93").into();
+        let pub_key: BLSPublicKey = hex!("ad152e3a168a9bba4b4681949810d891495a2d93c48cbae8878ee78cd5ff886b7ffed8f6794618a3be663a04339416e4").into();
+        let signer = VoteSigner::new(prv_key, pub_key).unwrap();
+
+        let vote = VoteData {
+            source_number: BlockNumber(1),
+            source_hash: hex!("be94fc6ce27f0f1f6d11141a0dd6bc01dba1c9c32be4162a2344c74b51b360ce")
+                .into(),
+            target_number: BlockNumber(2),
+            target_hash: hex!("169ee5fc04a06e9bf377f671ffd176b81bc7b71799ff7d5cd4c9702944202719")
+                .into(),
+        };
+        let ve = VoteEnvelope {
+            vote_address: pub_key,
+            signature: signer.sign(&vote),
+            data: vote,
+        };
+
+        assert!(ve.verify().is_ok());
     }
 }

@@ -233,3 +233,13 @@ pub const EMPTY_ROOT: H256 = H256(hex!(
 
 pub const GIGA: u64 = 1_000_000_000; // = 10^9
 pub const ETHER: u128 = 1_000_000_000_000_000_000; // = 10^18
+
+impl BlockNumber {
+    pub fn parent(&self) -> BlockNumber {
+        BlockNumber(self.0 - 1)
+    }
+
+    pub fn ancient(&self, x: u64) -> BlockNumber {
+        BlockNumber(self.0 - x)
+    }
+}

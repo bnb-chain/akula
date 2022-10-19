@@ -132,7 +132,8 @@ fn execute_mining_blocks<E: EnvironmentKind>(
     starting_block: BlockNumber,
     first_started_at: (Instant, Option<BlockNumber>),
 ) -> Result<BlockNumber, StageError> {
-    let mut consensus_engine = engine_factory(None, chain_config.clone(), None)?;
+    let mut consensus_engine =
+        engine_factory(None, chain_config.clone(), None, Default::default())?;
     consensus_engine.set_state(ConsensusState::recover(tx, &chain_config, starting_block)?);
 
     let mut buffer = Buffer::new(tx, None);

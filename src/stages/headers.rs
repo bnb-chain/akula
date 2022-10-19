@@ -477,7 +477,8 @@ impl HeaderDownload {
         let chain_config = txn
             .get(tables::Config, ())?
             .ok_or_else(|| format_err!("No chain specification set"))?;
-        let consensus_engine = engine_factory(None, chain_config.clone(), None)?;
+        let consensus_engine =
+            engine_factory(None, chain_config.clone(), None, Default::default())?;
         info!(
             "Will download {} headers over {} requests",
             end - start + 1,

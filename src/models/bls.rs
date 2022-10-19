@@ -3,11 +3,17 @@ use fixed_hash::construct_fixed_hash;
 
 /// length of BLS public key
 pub const BLS_PUBLIC_KEY_LEN: usize = 48;
+/// length of BLS private key
+pub const BLS_PRIVATE_KEY_LEN: usize = 32;
 /// length of BLS Signature key
 pub const BLS_SIGNATURE_LEN: usize = 96;
 
 construct_fixed_hash! {
     pub struct BLSPublicKey(BLS_PUBLIC_KEY_LEN);
+}
+
+construct_fixed_hash! {
+    pub struct BLSPrivateKey(BLS_PRIVATE_KEY_LEN);
 }
 
 construct_fixed_hash! {

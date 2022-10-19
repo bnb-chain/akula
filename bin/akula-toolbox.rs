@@ -169,8 +169,13 @@ async fn download_headers(
     let _ = std::fs::remove_dir_all(&etl_temp_path);
     std::fs::create_dir_all(&etl_temp_path)?;
     let env = Arc::new(akula::kv::new_database(&CHAINDATA_TABLES, &chain_data_dir)?);
-    let consensus: Arc<dyn Consensus> =
-        engine_factory(Some(env.clone()), chain_config.chain_spec.clone(), None)?.into();
+    let consensus: Arc<dyn Consensus> = engine_factory(
+        Some(env.clone()),
+        chain_config.chain_spec.clone(),
+        None,
+        Default::default(),
+    )?
+    .into();
     let txn = env.begin_mutable()?;
     akula::genesis::initialize_genesis(
         &txn,

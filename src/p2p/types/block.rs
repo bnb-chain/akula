@@ -1,4 +1,7 @@
-use crate::models::{Block, BlockNumber, H256, U256};
+use crate::{
+    consensus::vote::VoteEnvelope,
+    models::{Block, BlockNumber, H256, U256},
+};
 use fastrlp::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, RlpEncodable, RlpDecodable)]
@@ -52,4 +55,9 @@ pub struct BlockHashAndNumber {
 pub struct NewBlock {
     pub block: Block,
     pub total_difficulty: U256,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, RlpEncodable, RlpDecodable)]
+pub struct Votes {
+    pub votes: Vec<VoteEnvelope>,
 }

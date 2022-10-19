@@ -170,7 +170,8 @@ where
                         let mut buffer = Buffer::new(&txn, Some(BlockNumber(block_number.0 - 1)));
 
                         let block_execution_spec = chain_spec.collect_block_spec(block_number);
-                        let mut engine = engine_factory(None, chain_spec.clone(), None)?;
+                        let mut engine =
+                            engine_factory(None, chain_spec.clone(), None, Default::default())?;
                         let mut analysis_cache = AnalysisCache::default();
                         let mut tracer = NoopTracer;
 
@@ -279,7 +280,8 @@ where
 
             let mut tracer = NoopTracer;
 
-            let beneficiary = engine_factory(None, chain_spec, None)?.get_beneficiary(&header);
+            let beneficiary = engine_factory(None, chain_spec, None, Default::default())?
+                .get_beneficiary(&header);
             Ok(evmglue::execute(
                 &mut state,
                 &mut tracer,
@@ -336,7 +338,8 @@ where
             let mut tracer = NoopTracer;
             let gas_limit = header.gas_limit;
 
-            let beneficiary = engine_factory(None, chain_spec, None)?.get_beneficiary(&header);
+            let beneficiary = engine_factory(None, chain_spec, None, Default::default())?
+                .get_beneficiary(&header);
             Ok(U64::from(
                 gas_limit as i64
                     - evmglue::execute(
@@ -632,7 +635,7 @@ where
                 let mut buffer = Buffer::new(&txn, Some(BlockNumber(block_number.0 - 1)));
 
                 let block_execution_spec = chain_spec.collect_block_spec(block_number);
-                let mut engine = engine_factory(None, chain_spec.clone(), None)?;
+                let mut engine = engine_factory(None, chain_spec.clone(), None, Default::default())?;
                 let mut analysis_cache = AnalysisCache::default();
                 let mut tracer = NoopTracer;
 

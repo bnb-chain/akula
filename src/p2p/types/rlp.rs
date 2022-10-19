@@ -36,6 +36,7 @@ impl Encodable for Message {
             Message::Transactions(ref value) => value.encode(out),
             Message::GetPooledTransactions(ref value) => value.encode(out),
             Message::PooledTransactions(ref value) => value.encode(out),
+            Message::Votes(ref value) => value.encode(out),
         }
     }
 }

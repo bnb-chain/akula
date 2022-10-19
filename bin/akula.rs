@@ -1,7 +1,7 @@
 use akula::{
     akula_tracing::{self, Component},
     binutil::AkulaDataDir,
-    consensus::{engine_factory, Consensus, ForkChoiceMode},
+    consensus::{engine_factory, Consensus, ForkChoiceMode, InitialParams, ParliaInitialParams},
     kv::tables::CHAINDATA_TABLES,
     mining::state::*,
     models::*,
@@ -42,6 +42,7 @@ use std::{
 use tokio::time::sleep;
 use tracing::*;
 use tracing_subscriber::prelude::*;
+
 #[derive(Parser)]
 #[clap(name = "Akula", about = "Next-generation Ethereum implementation.")]
 pub struct Opt {
@@ -148,6 +149,14 @@ pub struct Opt {
     #[clap(long)]
     pub mine_secretkey: Option<SecretKey>,
 
+    /// BLS Private key to sign vote, hex format
+    #[clap(long)]
+    pub bls_secret_key: Option<String>,
+
+    /// BLS Public key, hex format
+    #[clap(long)]
+    pub bls_public_key: Option<String>,
+
     /// Path to JWT secret file.
     #[clap(long)]
     pub jwt_secret_path: Option<ExpandedPathBuf>,
@@ -235,19 +244,6 @@ fn main() -> anyhow::Result<()> {
                     )?;
                     file.flush()?;
                 }
-
-                let consens_config = engine_factory(
-                    Some(db.clone()),
-                    chainspec.clone(),
-                    Some(opt.engine_listen_address),
-                )?;
-
-                let consensus: Arc<dyn Consensus> = engine_factory(
-                    Some(db.clone()),
-                    chainspec.clone(),
-                    Some(opt.engine_listen_address),
-                )?
-                .into();
 
                 let network_id = chainspec.params.network_id;
 
@@ -404,6 +400,16 @@ fn main() -> anyhow::Result<()> {
                         warn!("No private key to sign blocks given, will not enable mining");
                         can_mine = false;
                     }
+
+                    if opt.bls_secret_key.is_none() {
+                        warn!("No BLS private key to sign vote, will not enable mining");
+                        can_mine = false;
+                    }
+
+                    if opt.bls_public_key.is_none() {
+                        warn!("No BLS public key, will not enable mining");
+                        can_mine = false;
+                    }
                 };
                 let mut staged_sync = stagedsync::StagedSync::new();
                 staged_sync.set_min_progress_to_commit_after_stage(if opt.prune {
@@ -466,6 +472,32 @@ fn main() -> anyhow::Result<()> {
                 }
 
                 let node = Arc::new(builder.build()?);
+
+                // init consensus init params
+                let params = match chainspec.consensus.seal_verification {
+                    SealVerificationParams::Parlia { .. } => {
+                        if !can_mine {
+                            InitialParams::Useless
+                        } else {
+                            InitialParams::Parlia(ParliaInitialParams {
+                                bls_prv_key: opt.bls_secret_key,
+                                bls_pub_key: opt.bls_public_key,
+                                node: Some(Arc::clone(&node)),
+                                sync_stage: Some(staged_sync.current_stage()),
+                            })
+                        }
+                    }
+                    _ => InitialParams::Useless,
+                };
+
+                let consensus: Arc<dyn Consensus> = engine_factory(
+                    Some(db.clone()),
+                    chainspec.clone(),
+                    Some(opt.engine_listen_address),
+                    params.clone(),
+                )?
+                .into();
+
                 let tip_discovery =
                     !matches!(consensus.fork_choice_mode(), ForkChoiceMode::External(_));
 
@@ -558,12 +590,18 @@ fn main() -> anyhow::Result<()> {
 
                 if can_mine {
                     staged_sync.is_mining = true;
+                    let consensus_config = engine_factory(
+                        Some(db.clone()),
+                        chainspec.clone(),
+                        Some(opt.engine_listen_address),
+                        params.clone(),
+                    )?;
                     let config = MiningConfig {
                         enabled: true,
                         ether_base: opt.mine_etherbase.unwrap().clone(),
                         secret_key: opt.mine_secretkey.unwrap().clone(),
                         extra_data: opt.mine_extradata.map(Bytes::from).clone(),
-                        consensus: consens_config,
+                        consensus: consensus_config,
                         dao_fork_block: Some(BigInt::new(num_bigint::Sign::Plus, vec![])),
                         dao_fork_support: false,
                         gas_limit: 30000000,

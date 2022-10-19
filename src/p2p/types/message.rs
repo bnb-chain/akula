@@ -26,6 +26,8 @@ pub enum MessageId {
     NodeData = 12,
     Receipts = 13,
     PooledTransactions = 14,
+    // Protocol messages overloaded in eth/68
+    NewVote = 32,
 }
 
 #[derive(Debug)]
@@ -89,6 +91,8 @@ impl From<MessageId> for grpc_sentry::MessageId {
             MessageId::NodeData => grpc_sentry::MessageId::NodeData66,
             MessageId::GetReceipts => grpc_sentry::MessageId::GetReceipts66,
             MessageId::Receipts => grpc_sentry::MessageId::Receipts66,
+            // TODO make eth68
+            MessageId::NewVote => grpc_sentry::MessageId::Receipts66,
         }
     }
 }
@@ -129,6 +133,7 @@ pub enum Message {
     Transactions(Transactions),
     GetPooledTransactions(GetPooledTransactions),
     PooledTransactions(PooledTransactions),
+    Votes(Votes),
 }
 
 impl Message {
@@ -145,6 +150,7 @@ impl Message {
             Self::Transactions(_) => MessageId::Transactions,
             Self::GetPooledTransactions(_) => MessageId::GetPooledTransactions,
             Self::PooledTransactions(_) => MessageId::PooledTransactions,
+            Message::Votes(_) => MessageId::NewVote,
         }
     }
 }
