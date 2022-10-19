@@ -8,6 +8,7 @@ pub mod parlia;
 use self::fork_choice_graph::ForkChoiceGraph;
 pub use self::{base::*, beacon::*, blockchain::*, clique::*, parlia::*};
 use crate::{
+    consensus::vote::VotePool,
     kv::{mdbx::*, tables, MdbxWithDirHandle},
     models::*,
     state::{IntraBlockState, StateReader},
@@ -361,7 +362,24 @@ pub enum ParliaError {
         got: usize,
     },
     InvalidAttestationAggSig,
+    InvalidVoteSource {
+        expect_number: BlockNumber,
+        got_number: BlockNumber,
+        expect_hash: H256,
+        got_hash: H256,
+    },
     UnknownVoteAddresses,
+    VoterNotInValidators {
+        addr: BLSPublicKey,
+    },
+    WrongVote {
+        vote: vote::VoteEnvelope,
+    },
+    NotFoundBLSKeyInValidators {
+        vote: vote::VoteEnvelope,
+    },
+    UnknownVotePool,
+    VoteErr(vote::ParliaVoteError),
 }
 impl From<ParliaError> for anyhow::Error {
     fn from(err: ParliaError) -> Self {
@@ -550,6 +568,12 @@ impl From<ParliaError> for DuoError {
     }
 }
 
+impl From<vote::ParliaVoteError> for DuoError {
+    fn from(err: vote::ParliaVoteError) -> Self {
+        DuoError::Validation(ValidationError::ParliaError(ParliaError::VoteErr(err)))
+    }
+}
+
 impl From<ethabi::Error> for DuoError {
     fn from(err: ethabi::Error) -> Self {
         DuoError::Internal(anyhow::Error::from(err))
@@ -577,6 +601,33 @@ impl From<DecodeError> for DuoError {
 impl From<AmclError> for DuoError {
     fn from(err: AmclError) -> Self {
         DuoError::Internal(anyhow!("AmclError: {:?}", err))
+    }
+}
+
+impl From<hex::FromHexError> for DuoError {
+    fn from(err: hex::FromHexError) -> Self {
+        DuoError::Internal(anyhow::Error::from(err))
+    }
+}
+
+#[derive(Clone)]
+pub enum InitialParams {
+    Parlia(ParliaInitialParams),
+    Useless,
+}
+
+impl InitialParams {
+    pub fn parlia(self) -> anyhow::Result<ParliaInitialParams> {
+        match self {
+            InitialParams::Parlia(p) => Ok(p),
+            InitialParams::Useless => Err(anyhow!("get Useless params!")),
+        }
+    }
+}
+
+impl Default for InitialParams {
+    fn default() -> Self {
+        InitialParams::Useless
     }
 }
 
@@ -611,13 +662,16 @@ pub fn engine_factory(
     db: Option<Arc<MdbxWithDirHandle<WriteMap>>>,
     chain_config: ChainSpec,
     listen_addr: Option<SocketAddr>,
+    params: InitialParams,
 ) -> anyhow::Result<Box<dyn Consensus>> {
     Ok(match chain_config.consensus.seal_verification {
         SealVerificationParams::Parlia { period, epoch } => Box::new(Parlia::new(
+            db,
             chain_config.params.chain_id,
             chain_config,
             epoch,
             period,
+            params,
         )),
         SealVerificationParams::Clique { period, epoch } => {
             let initial_signers = match chain_config.genesis.seal {

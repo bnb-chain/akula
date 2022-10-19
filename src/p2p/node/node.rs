@@ -2,6 +2,7 @@
 
 use super::{stash::Stash, stream::*};
 use crate::{
+    consensus::vote::VoteEnvelope,
     models::{Block, BlockNumber, ChainConfig, MessageWithSignature, H256},
     p2p::types::*,
 };
@@ -29,6 +30,7 @@ use tokio::sync::{watch, Notify};
 use tokio_stream::StreamExt;
 use tonic::transport::Channel;
 use tracing::*;
+
 pub type Sentry = SentryClient<Channel>;
 pub type SentryId = usize;
 
@@ -426,6 +428,20 @@ impl Node {
         self.send_raw(data, PeerFilter::All).await
     }
 
+    /// Send new vote to other peers.
+    pub async fn send_new_vote(&self, vote: VoteEnvelope) -> HashSet<(SentryId, PeerId)> {
+        let data = grpc_sentry::OutboundMessageData {
+            id: grpc_sentry::MessageId::from(MessageId::NewVote) as i32,
+            data: {
+                let mut buf = BytesMut::new();
+                Votes { votes: vec![vote] }.encode(&mut buf);
+                buf.freeze()
+            },
+        };
+
+        self.send_raw(data, PeerFilter::All).await
+    }
+
     pub async fn send_pooled_transactions(
         &self,
         request_id: RequestId,
@@ -552,6 +568,14 @@ impl Node {
 
         let sentries = self.sentries.iter().collect::<Vec<_>>();
         SentryStream::join_all(sentries, Self::BODIES_PREDICATE).await
+    }
+
+    // TODO make eth68
+    const VOTES_PREDICATE: [i32; 1] = [grpc_sentry::MessageId::Receipts66 as i32];
+
+    pub async fn stream_votes(&self) -> NodeStream {
+        let sentries = self.sentries.iter().collect::<Vec<_>>();
+        SentryStream::join_all(sentries, Self::VOTES_PREDICATE).await
     }
 
     #[inline]

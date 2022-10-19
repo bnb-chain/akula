@@ -55,7 +55,7 @@ where
             .get(tables::Config, ())?
             .ok_or_else(|| format_err!("no chainspec found"))?;
         let buffer = Buffer::new(tx, None);
-        let finalization_changes = engine_factory(None, chainspec, None)?
+        let finalization_changes = engine_factory(None, chainspec, None, Default::default())?
             .finalize(&header, &ommers, None, &buffer, &buffer)?;
 
         let mut block_reward = U256::ZERO;
@@ -172,7 +172,7 @@ where
         last_page: false,
     };
 
-    let engine = engine_factory(None, chain_spec.clone(), None)?;
+    let engine = engine_factory(None, chain_spec.clone(), None, Default::default())?;
     let beneficiary = engine.get_beneficiary(&header);
     for (transaction_index, (transaction, sender)) in messages.into_iter().zip(senders).enumerate()
     {
@@ -441,7 +441,7 @@ where
                 let mut buffer = Buffer::new(&txn, Some(BlockNumber(block_number.0 - 1)));
 
                 let block_execution_spec = chain_spec.collect_block_spec(block_number);
-                let mut engine = engine_factory(None, chain_spec.clone(), None)?;
+                let mut engine = engine_factory(None, chain_spec.clone(), None, Default::default())?;
                 let mut analysis_cache = AnalysisCache::default();
                 let mut tracer = NoopTracer;
 

@@ -1,4 +1,6 @@
-use crate::{chain::protocol_param::param, consensus::VoteData, crypto::*, models::*, util::*};
+use crate::{
+    chain::protocol_param::param, consensus::vote::VoteData, crypto::*, models::*, util::*,
+};
 use arrayref::array_ref;
 use bytes::{Buf, Bytes};
 use lazy_static::lazy_static;

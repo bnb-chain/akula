@@ -1,5 +1,5 @@
 use crate::{
-    consensus::parlia::{snapshot::ValidatorInfo, *},
+    consensus::parlia::{snapshot::ValidatorInfo, vote::VoteAttestation, *},
     crypto,
 };
 use ethereum_types::{Address, Public, H256};
@@ -406,6 +406,38 @@ mod tests {
         assert_eq!(
             addr,
             Address::from_str("68bcc47e7986bc68cb0bfa98e2be61a3f7b13457").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_bsc_creator_recover_with_high_chain_id() {
+        let header = &BlockHeader{
+            parent_hash: hex!("33179fedeefd01de6e37e201e5a0b3c3a57f5f10a61f20a9bc7772930bd2e777").into(),
+            ommers_hash: hex!("1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347").into(),
+            beneficiary: hex!("6d3d3fb1020a50f2c7b5e73c5332636b0163b707").into(),
+            state_root: hex!("3088d4d05b7bdfbe944c4c10ebfd98f0fd6df70a4dd6ee1728da3f4c2b028913").into(),
+            transactions_root: hex!("da2ae9572f6faafcbb188f9e78090fc5b7bea97e4354f6472bc39ae14a97a12a").into(),
+            receipts_root: hex!("dd1675a7a0ed82bdf02733d9ad2f5f565512c77e48bdba19ee50d977b65e9e7e").into(),
+            logs_bloom: hex!("08000000000000401000000000000000000000000000000000000000000000000000000002000000000000000020000000000000100080000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000040100000000000020000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000").into(),
+            difficulty: u256::new(1),
+            number: BlockNumber(1),
+            gas_limit: 39960939 as u64,
+            gas_used: 1661387 as u64,
+            timestamp: 1665565348 as u64,
+            extra_data: hex::decode("d98301010b846765746888676f312e31382e348664617277696e0000d2ab88a1dd2923dd85fb0d9fbc66ccf40b838b9b91358a237e52b7b1d50d2d88df7329115a672a0a881714a071b2b8742e0ca2f8dbb157f6ad697b1aacf1e3e44c12f37800").unwrap().into(),
+            mix_hash: hex!("0000000000000000000000000000000000000000000000000000000000000000").into(),
+            nonce: hex!("0000000000000000").into(),
+            base_fee_per_gas: Some(U256::from(875000000_u128))
+        };
+        info!("test header {}:{}", header.number.0, header.hash());
+        assert_eq!(
+            header.hash(),
+            hex!("6af33eb64a2ce7024482d7983a032f0edacd3fca47eec0e275a2dd8a35ae6b04").into()
+        );
+        let addr = recover_creator(header, ChainId(714_u64)).unwrap();
+        assert_eq!(
+            addr,
+            Address::from_str("6d3d3fb1020a50f2c7b5e73c5332636b0163b707").unwrap()
         );
     }
 

@@ -264,7 +264,7 @@ where
     let block_spec = chain_spec.collect_block_spec(block_number);
     let mut buffer = Buffer::new(txn, historical_block);
 
-    let engine = engine_factory(None, chain_spec.clone(), None)?;
+    let engine = engine_factory(None, chain_spec.clone(), None, Default::default())?;
 
     let mut analysis_cache = AnalysisCache::default();
     for (sender, message, trace_types) in calls {
@@ -396,7 +396,7 @@ where
 
     let mut rewards = vec![];
     if let Some(ommers) = ommers_for_finalization {
-        for change in engine_factory(None, chain_spec, None)?
+        for change in engine_factory(None, chain_spec, None, Default::default())?
             .finalize(&header, &ommers, None, &buffer, &buffer)?
         {
             match change {
