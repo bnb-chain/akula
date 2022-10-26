@@ -161,7 +161,18 @@ pub trait Consensus: Debug + Send + Sync + 'static {
         Ok(())
     }
 
+    /// Prepare initializes the consensus fields of a block header according to the
+    /// rules of a particular engine. The changes are executed inline.
     fn prepare(
+        &mut self,
+        _header_reader: &dyn HeaderReader,
+        _header: &mut BlockHeader,
+    ) -> anyhow::Result<(), DuoError> {
+        Ok(())
+    }
+
+    /// Seal generates a new sealing request for the given input block
+    fn seal(
         &mut self,
         _header_reader: &dyn HeaderReader,
         _header: &mut BlockHeader,

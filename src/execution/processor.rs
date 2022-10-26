@@ -507,6 +507,18 @@ where
 
         Ok(receipts)
     }
+
+    pub fn execute_and_write_block_no_check(mut self) -> Result<Vec<Receipt>, DuoError> {
+        self.engine.new_block(
+            self.header,
+            ConsensusNewBlockState::handle(self.chain_spec, self.header, &mut self.state)?,
+        )?;
+        let receipts = self.execute_block_no_post_validation()?;
+
+        self.state.write_to_state(self.header.number)?;
+
+        Ok(receipts)
+    }
 }
 
 #[cfg(test)]

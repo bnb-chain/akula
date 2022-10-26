@@ -182,35 +182,37 @@ impl Parlia {
     ) -> Self {
         let vote_pool = None;
         if let InitialParams::Parlia(other) = other {
-            // start vote manager
-            let node = other.node.unwrap();
-            let pool = VotePool::new(None, Arc::clone(&node));
-            let parlia = Arc::new(Self {
-                chain_spec: chain_spec.clone(),
-                chain_id,
-                epoch,
-                period,
-                recent_snaps: RwLock::new(LruCache::new(SNAP_CACHE_NUM)),
-                fork_choice_graph: Arc::new(Mutex::new(Default::default())),
-                new_block_state: ParliaNewBlockState::new(None),
-                miner: Default::default(),
-                vote_pool: Some(Arc::clone(&pool)),
-            });
-            let posa = Arc::clone(&(parlia as Arc<dyn PoSA>));
-            pool.lock().set_engine(Arc::clone(&posa));
+            if let (Some(prv_key), Some(pub_key)) = (other.bls_prv_key, other.bls_pub_key) {
+                // start vote manager
+                let node = other.node.unwrap();
+                let pool = VotePool::new(None, Arc::clone(&node));
+                let parlia = Arc::new(Self {
+                    chain_spec: chain_spec.clone(),
+                    chain_id,
+                    epoch,
+                    period,
+                    recent_snaps: RwLock::new(LruCache::new(SNAP_CACHE_NUM)),
+                    fork_choice_graph: Arc::new(Mutex::new(Default::default())),
+                    new_block_state: ParliaNewBlockState::new(None),
+                    miner: Default::default(),
+                    vote_pool: Some(Arc::clone(&pool)),
+                });
+                let posa = Arc::clone(&(parlia as Arc<dyn PoSA>));
+                pool.lock().set_engine(Arc::clone(&posa));
 
-            let vm = VoteManager::new(
-                chain_spec.clone(),
-                posa,
-                pool,
-                node,
-                Arc::clone(&db.unwrap()),
-                other.sync_stage.unwrap(),
-                other.bls_prv_key.unwrap(),
-                other.bls_pub_key.unwrap(),
-            )
-            .unwrap();
-            VoteManager::start(vm);
+                let vm = VoteManager::new(
+                    chain_spec.clone(),
+                    posa,
+                    pool,
+                    node,
+                    Arc::clone(&db.unwrap()),
+                    other.sync_stage.unwrap(),
+                    prv_key,
+                    pub_key,
+                )
+                .unwrap();
+                VoteManager::start(vm);
+            }
         }
 
         Self {
@@ -1035,6 +1037,10 @@ impl Consensus for Parlia {
         // if set transactions, check systemTxs and reward if correct
         // must set transactions in sync
         if let Some(transactions) = transactions {
+            //TODO if txs empty, skip for empty block
+            if transactions.len() == 0 {
+                return Ok(Vec::new());
+            }
             let mut system_txs: Vec<&MessageWithSender> = transactions
                 .iter()
                 .filter(|tx| is_system_transaction(&tx.message, &tx.sender, &header.beneficiary))
@@ -1161,6 +1167,15 @@ impl Consensus for Parlia {
             return Ok(());
         }
         Err(ParliaError::WrongConsensusParam.into())
+    }
+
+    // TODO: Seal block!
+    fn seal(
+        &mut self,
+        _header_reader: &dyn HeaderReader,
+        _header: &mut BlockHeader,
+    ) -> anyhow::Result<(), DuoError> {
+        Ok(())
     }
 
     fn snapshot(

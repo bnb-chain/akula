@@ -26,7 +26,7 @@ use std::{
     sync::{mpsc, Arc, Mutex},
 };
 use tokio::io::copy;
-use tracing::debug;
+use tracing::{debug, info};
 
 pub const CREATE_BLOCK: StageId = StageId("CreateBlock");
 // DAOForkExtraRange is the number of consecutive blocks from the DAO fork point
@@ -75,30 +75,6 @@ where
     where
         'db: 'tx,
     {
-        let mining_block = MiningBlock {
-            header: BlockHeader {
-                parent_hash: H256::zero(),
-                ommers_hash: H256::zero(),
-                beneficiary: Address::zero(),
-                state_root: H256::zero(),
-                transactions_root: H256::zero(),
-                receipts_root: H256::zero(),
-                logs_bloom: Bloom::zero(),
-                difficulty: U256::ZERO,
-                number: BlockNumber(0),
-                gas_limit: 0,
-                gas_used: 0,
-                timestamp: 0,
-                extra_data: Bytes::new(),
-                mix_hash: H256::zero(),
-                nonce: H64::zero(),
-                base_fee_per_gas: None,
-            },
-            ommers: Default::default(),
-            transactions: vec![],
-        };
-        let mining_block_mutex = Arc::new(Mutex::new(mining_block));
-        self.mining_block = Arc::clone(&mining_block_mutex);
         let parent_number = input.stage_progress.unwrap_or(BlockNumber(0));
         let parent_header = get_header(tx, parent_number)?;
 
@@ -108,16 +84,11 @@ where
 
         let buffer = Buffer::new(tx, None);
         if self.chain_spec.consensus.is_parlia() {
-            assert!(self
-                .mining_config
-                .lock()
-                .unwrap()
-                .consensus
-                .prepare(&buffer, &mut proposal)
-                .is_ok());
+            let mut config = self.mining_config.lock().unwrap();
+            assert!(config.consensus.prepare(&buffer, &mut proposal).is_ok());
 
             // If we are care about TheDAO hard-fork check whether to override the extra-data or not
-            if let Some(dao_block) = &self.mining_config.lock().unwrap().dao_fork_block {
+            if let Some(dao_block) = &config.dao_fork_block {
                 // Check whether the block is among the fork extra-override range
                 let limit = BigInt::checked_add(&dao_block, &BigInt::from(DAOFORKEXTRARANG));
                 if proposal.number.0.cmp(&DAOFORKEXTRARANG.to_u64().unwrap()) >= Ordering::Equal
@@ -126,7 +97,7 @@ where
                     let dao_fork_block_extra =
                         hex::decode("0x64616f2d686172642d666f726b").unwrap().into();
                     // Depending whether we support or oppose the fork, override differently
-                    if self.mining_config.lock().unwrap().dao_fork_support {
+                    if config.dao_fork_support {
                         proposal.extra_data = dao_fork_block_extra;
                     } else if bytes::Bytes::eq(&proposal.extra_data, &dao_fork_block_extra) {
                         // If miner opposes, don't let it use the reserved extra-data
@@ -136,7 +107,11 @@ where
             }
         }
 
-        self.mining_block.lock().unwrap().header = proposal;
+        *self.mining_block.lock().unwrap() = MiningBlock {
+            header: proposal,
+            ommers: Default::default(),
+            transactions: vec![],
+        };
         debug!("Miner created block with data");
 
         Ok(ExecOutput::Progress {

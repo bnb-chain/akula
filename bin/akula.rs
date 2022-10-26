@@ -402,13 +402,11 @@ fn main() -> anyhow::Result<()> {
                     }
 
                     if opt.bls_secret_key.is_none() {
-                        warn!("No BLS private key to sign vote, will not enable mining");
-                        can_mine = false;
+                        warn!("No BLS private key to sign vote, will not enable mining fast finality blocks");
                     }
 
                     if opt.bls_public_key.is_none() {
-                        warn!("No BLS public key, will not enable mining");
-                        can_mine = false;
+                        warn!("No BLS public key, will not enable mining fast finality blocks");
                     }
                 };
                 let mut staged_sync = stagedsync::StagedSync::new();
@@ -476,16 +474,12 @@ fn main() -> anyhow::Result<()> {
                 // init consensus init params
                 let params = match chainspec.consensus.seal_verification {
                     SealVerificationParams::Parlia { .. } => {
-                        if !can_mine {
-                            InitialParams::Useless
-                        } else {
-                            InitialParams::Parlia(ParliaInitialParams {
-                                bls_prv_key: opt.bls_secret_key,
-                                bls_pub_key: opt.bls_public_key,
-                                node: Some(Arc::clone(&node)),
-                                sync_stage: Some(staged_sync.current_stage()),
-                            })
-                        }
+                        InitialParams::Parlia(ParliaInitialParams {
+                            bls_prv_key: opt.bls_secret_key,
+                            bls_pub_key: opt.bls_public_key,
+                            node: Some(Arc::clone(&node)),
+                            sync_stage: Some(staged_sync.current_stage()),
+                        })
                     }
                     _ => InitialParams::Useless,
                 };
@@ -653,13 +647,14 @@ fn main() -> anyhow::Result<()> {
                         false,
                     );
 
-                    staged_sync.push(HashState::new(etl_temp_dir.clone(), None), !opt.prune);
-
-                    staged_sync.push_with_unwind_priority(
-                        Interhashes::new(etl_temp_dir.clone(), None),
-                        !opt.prune,
-                        1,
-                    );
+                    // TODO Error: Faulty cumulative index: max gas less than current gas (1395722 < 1532487), you should mining after latest block
+                    // staged_sync.push(HashState::new(etl_temp_dir.clone(), None), !opt.prune);
+                    //
+                    // staged_sync.push_with_unwind_priority(
+                    //     Interhashes::new(etl_temp_dir.clone(), None),
+                    //     !opt.prune,
+                    //     1,
+                    // );
                     info!("createBlock stage enabled");
 
                     staged_sync.push(

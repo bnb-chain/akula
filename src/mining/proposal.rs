@@ -73,14 +73,15 @@ pub fn create_block_header(
     }
 
     let parent_gas_limit = parent_header.gas_limit;
-    let target_gas_limit = config.lock().unwrap().gas_limit.clone();
+    let config = config.lock().unwrap();
+    let target_gas_limit = config.gas_limit;
     let gas_limit = calc_gas_limit(parent_gas_limit, target_gas_limit);
     Ok(BlockHeader {
         parent_hash: parent_header.hash(),
         number: parent_header.number + 1,
-        beneficiary: config.lock().unwrap().get_ether_base(),
+        beneficiary: config.get_ether_base(),
         difficulty: U256::ZERO,
-        extra_data: config.lock().unwrap().get_extra_data(),
+        extra_data: config.get_extra_data(),
         timestamp: timestamp,
         ommers_hash: H256::zero(),
         state_root: H256::zero(),
