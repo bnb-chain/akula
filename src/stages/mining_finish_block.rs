@@ -33,7 +33,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::io::copy;
-use tracing::debug;
+use tracing::{debug, log::warn};
 
 pub const STAGE_FINISH_BLOCK: StageId = StageId("StageFinishBlock");
 // DAOForkExtraRange is the number of consecutive blocks from the DAO fork point
@@ -71,36 +71,61 @@ where
             .map(|(_, b)| b)
             .unwrap_or(BlockNumber(0));
 
-        let header = self.mining_block.lock().unwrap().header.clone();
-        let transactions = self.mining_block.lock().unwrap().transactions.clone();
-        let ommers = self.mining_block.lock().unwrap().ommers.clone();
-        let partial_header = PartialHeader::from(header);
-        let block = Block::new(partial_header, transactions, ommers);
+        let (mut header, block) = {
+            let mining_block = self.mining_block.lock().unwrap();
+            let header = mining_block.header.clone();
+            let block = Block::new(
+                PartialHeader::from(header.clone()),
+                mining_block.transactions.clone(),
+                mining_block.ommers.clone(),
+            );
+            (header, block)
+        };
 
-        self.mining_status
+        if let Err(err) = self
+            .mining_status
             .lock()
             .unwrap()
             .mining_result_pos_ch
             .send(block.clone())
-            .unwrap();
+        {
+            warn!("mining finish send mining_result_pos_ch err: {:?}", err);
+        }
 
         if !block.header.nonce.0.is_empty() {
-            self.mining_status
+            if let Err(err) = self
+                .mining_status
                 .lock()
                 .unwrap()
                 .mining_result_ch
                 .send(block.clone())
-                .unwrap();
+            {
+                warn!("mining finish send mining_result_ch err: {:?}", err);
+            }
         }
 
-        self.mining_status
+        if let Err(err) = self
+            .mining_status
             .lock()
             .unwrap()
             .pending_result_ch
             .send(block.clone())
-            .unwrap();
+        {
+            warn!("mining finish send pending_result_ch err: {:?}", err);
+        }
 
-        // TODO: Seal block!
+        self.mining_config
+            .lock()
+            .unwrap()
+            .consensus
+            .seal(tx, &mut header)?;
+
+        // reconstruct, then broadcast
+        let block = Block::new(
+            PartialHeader::from(header),
+            block.transactions.clone(),
+            block.ommers.clone(),
+        );
 
         // Broadcast the mined block to other p2p nodes.
         let sent_request_id = rand::thread_rng().gen();

@@ -12,7 +12,7 @@ use crate::{
         proposal::{create_block_header, create_proposal},
         state::*,
     },
-    models::{BlockHeader, BlockNumber, ChainSpec},
+    models::{BlockBodyWithSenders, BlockHeader, BlockNumber, ChainSpec, MessageWithSender},
     res::chainspec,
     stagedsync::stage::*,
     state::IntraBlockState,
@@ -31,7 +31,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::io::copy;
-use tracing::debug;
+use tracing::{debug, info};
 
 pub const STAGE_EXEC_BLOCK: StageId = StageId("StageExecBlock");
 // DAOForkExtraRange is the number of consecutive blocks from the DAO fork point
@@ -63,22 +63,14 @@ where
     where
         'db: 'tx,
     {
-        let parent_number = input.stage_progress.unwrap();
-        let parent_header = get_header(tx, parent_number)?;
+        let (_, block_number) = input.previous_stage.unwrap();
 
-        let prev_progress = input.stage_progress.unwrap_or_default();
-        let current = &self.mining_block.lock().unwrap();
         if self.chain_spec.consensus.is_parlia() {
+            let current = &self.mining_block.lock().unwrap();
             // If we are care about TheDAO hard-fork check whether to override the extra-data or not
-            if self.mining_config.lock().unwrap().dao_fork_support
-                && self
-                    .mining_config
-                    .lock()
-                    .unwrap()
-                    .dao_fork_block
-                    .clone()
-                    .unwrap()
-                    .to_u64()
+            let mining_config = self.mining_config.lock().unwrap();
+            if mining_config.dao_fork_support
+                && mining_config.dao_fork_block.clone().unwrap().to_u64()
                     == (current.header.number.to_u64())
             {
                 // TODO: Apply for DAO Fork!
@@ -87,24 +79,23 @@ where
             let mut state = IntraBlockState::new(&mut buffer);
             contract_upgrade::upgrade_build_in_system_contract(
                 &self.chain_spec,
-                &self.mining_block.lock().unwrap().header.number,
+                &current.header.number,
                 &mut state,
             )?;
         }
 
         // TODO: Add transaction to mining block after txpool enabled!
-
         execute_mining_blocks(
             tx,
             self.chain_spec.clone(),
-            current.header.number,
+            self.mining_block.clone(),
             input.first_started_at,
         )?;
 
-        STAGE_EXEC_BLOCK.save_progress(tx, current.header.number)?;
+        STAGE_EXEC_BLOCK.save_progress(tx, block_number)?;
 
         Ok(ExecOutput::Progress {
-            stage_progress: prev_progress,
+            stage_progress: block_number,
             done: true,
             reached_tip: true,
         })
@@ -129,30 +120,39 @@ where
 fn execute_mining_blocks<E: EnvironmentKind>(
     tx: &MdbxTransaction<'_, RW, E>,
     chain_config: ChainSpec,
-    starting_block: BlockNumber,
+    mining_block: Arc<Mutex<MiningBlock>>,
     first_started_at: (Instant, Option<BlockNumber>),
 ) -> Result<BlockNumber, StageError> {
+    let current = mining_block.lock().unwrap();
+    let block_number = current.header.number;
+
     let mut consensus_engine =
         engine_factory(None, chain_config.clone(), None, Default::default())?;
-    consensus_engine.set_state(ConsensusState::recover(tx, &chain_config, starting_block)?);
+    consensus_engine.set_state(ConsensusState::recover(tx, &chain_config, block_number)?);
 
     let mut buffer = Buffer::new(tx, None);
     let mut analysis_cache = AnalysisCache::default();
 
-    let block_number = starting_block;
-
-    let block_hash = tx
-        .get(tables::CanonicalHeader, block_number)?
-        .ok_or_else(|| format_err!("No canonical hash found for block {}", block_number))?;
-    let header = tx
-        .get(tables::Header, block_number)?
-        .ok_or_else(|| format_err!("Header not found: {}/{:?}", block_number, block_hash))?;
-    let block = accessors::chain::block_body::read_with_senders(tx, block_number)?
-        .ok_or_else(|| format_err!("Block body not found: {}/{:?}", block_number, block_hash))?;
+    let block_hash = current.header.hash();
+    let header = &current.header;
+    let block = BlockBodyWithSenders {
+        transactions: current
+            .transactions
+            .iter()
+            .map(|tx| {
+                let sender = tx.recover_sender()?;
+                Ok(MessageWithSender {
+                    message: tx.message.clone(),
+                    sender,
+                })
+            })
+            .collect::<anyhow::Result<_>>()?,
+        ommers: current.ommers.clone(),
+    };
 
     let block_spec = chain_config.collect_block_spec(block_number);
 
-    if !consensus_engine.is_state_valid(&header) {
+    if !consensus_engine.is_state_valid(header) {
         consensus_engine.set_state(ConsensusState::recover(tx, &chain_config, block_number)?);
     }
 
@@ -166,12 +166,12 @@ fn execute_mining_blocks<E: EnvironmentKind>(
         &mut call_tracer,
         &mut analysis_cache,
         &mut *consensus_engine,
-        &header,
+        header,
         &block,
         &block_spec,
         &chain_config,
     )
-    .execute_and_write_block()
+    .execute_and_write_block_no_check()
     .map_err(|e| match e {
         DuoError::Validation(error) => StageError::Validation {
             block: block_number,
