@@ -186,7 +186,7 @@ where
                             &chain_spec,
                         );
 
-                        let receipts = processor.execute_block_no_post_validation()?;
+                        let (_, receipts) = processor.execute_block_no_post_validation(false)?;
 
                         for ((transaction_index, receipt), txhash) in
                             receipts.into_iter().enumerate().zip(txhashes)
@@ -656,8 +656,8 @@ where
                     .find(|(_, tx)| tx.hash() == hash)
                     .ok_or_else(|| format_err!("transaction {hash} not found in block #{block_number}/{block_hash} despite lookup index"))?.0;
 
-                let receipts =
-                    processor.execute_block_no_post_validation_while(|i, _| i <= transaction_index)?;
+                let (_, receipts) =
+                    processor.execute_block_no_post_validation_while(|i, _| i <= transaction_index, false)?;
 
                 let transaction = &block_body.transactions[transaction_index];
                 let receipt = receipts.get(transaction_index).unwrap();

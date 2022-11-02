@@ -462,7 +462,7 @@ where
                     .find(|(_, tx)| tx.hash() == hash)
                     .ok_or_else(|| format_err!("transaction {hash} not found in block #{block_number}/{block_hash} despite lookup index"))?.0;
 
-                processor.execute_block_no_post_validation_while(|i, _| i < transaction_index)?;
+                processor.execute_block_no_post_validation_while(|i, _| i < transaction_index, false)?;
 
                 let tx = block_body.transactions.get(transaction_index).ok_or_else(|| format_err!("block #{block_number}/{block_hash} too short: tx #{transaction_index} not in body"))?;
                 let mut operations_tracer = OperationsTracer::default();

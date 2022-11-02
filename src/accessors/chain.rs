@@ -220,6 +220,7 @@ pub mod block_body {
                     .map(|(tx, sender)| MessageWithSender {
                         message: tx.message,
                         sender,
+                        signature: tx.signature,
                     })
                     .collect(),
                 ommers: body.ommers,

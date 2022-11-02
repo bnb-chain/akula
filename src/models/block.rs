@@ -56,6 +56,7 @@ impl From<Block> for BlockWithSenders {
                 MessageWithSender {
                     message: tx.message,
                     sender,
+                    signature: tx.signature,
                 }
             })
             .collect();

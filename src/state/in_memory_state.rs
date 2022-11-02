@@ -193,6 +193,7 @@ impl InMemoryState {
                                 Ok(MessageWithSender {
                                     message: tx.message.clone(),
                                     sender,
+                                    signature: tx.signature.clone(),
                                 })
                             })
                             .collect::<anyhow::Result<_>>()?,

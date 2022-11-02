@@ -12,7 +12,10 @@ use crate::{
         proposal::{create_block_header, create_proposal},
         state::*,
     },
-    models::{BlockBodyWithSenders, BlockHeader, BlockNumber, ChainSpec, MessageWithSender},
+    models::{
+        BlockBodyWithSenders, BlockHeader, BlockNumber, ChainSpec, MessageWithSender,
+        MessageWithSignature,
+    },
     res::chainspec,
     stagedsync::stage::*,
     state::IntraBlockState,
@@ -88,6 +91,7 @@ where
         execute_mining_blocks(
             tx,
             self.chain_spec.clone(),
+            self.mining_config.clone(),
             self.mining_block.clone(),
             input.first_started_at,
         )?;
@@ -120,21 +124,28 @@ where
 fn execute_mining_blocks<E: EnvironmentKind>(
     tx: &MdbxTransaction<'_, RW, E>,
     chain_config: ChainSpec,
+    mining_config: Arc<Mutex<MiningConfig>>,
     mining_block: Arc<Mutex<MiningBlock>>,
     first_started_at: (Instant, Option<BlockNumber>),
 ) -> Result<BlockNumber, StageError> {
-    let current = mining_block.lock().unwrap();
-    let block_number = current.header.number;
+    let mut current = mining_block.lock().unwrap();
+    let header = &current.header;
+    let block_hash = header.hash();
+    let block_number = header.number;
 
-    let mut consensus_engine =
-        engine_factory(None, chain_config.clone(), None, Default::default())?;
-    consensus_engine.set_state(ConsensusState::recover(tx, &chain_config, block_number)?);
+    let mut mining_config = mining_config.lock().unwrap();
+    let mut engine = mining_config.consensus.as_mut();
+
+    if !engine.is_state_valid(header) {
+        engine.set_state(ConsensusState::recover(tx, &chain_config, block_number)?);
+    }
+    if chain_config.consensus.is_parlia() {
+        engine.snapshot(tx, tx, block_number.parent(), current.header.parent_hash)?;
+    }
 
     let mut buffer = Buffer::new(tx, None);
     let mut analysis_cache = AnalysisCache::default();
 
-    let block_hash = current.header.hash();
-    let header = &current.header;
     let block = BlockBodyWithSenders {
         transactions: current
             .transactions
@@ -144,6 +155,7 @@ fn execute_mining_blocks<E: EnvironmentKind>(
                 Ok(MessageWithSender {
                     message: tx.message.clone(),
                     sender,
+                    signature: tx.signature.clone(),
                 })
             })
             .collect::<anyhow::Result<_>>()?,
@@ -151,21 +163,12 @@ fn execute_mining_blocks<E: EnvironmentKind>(
     };
 
     let block_spec = chain_config.collect_block_spec(block_number);
-
-    if !consensus_engine.is_state_valid(header) {
-        consensus_engine.set_state(ConsensusState::recover(tx, &chain_config, block_number)?);
-    }
-
-    if chain_config.consensus.is_parlia() && header.difficulty != DIFF_INTURN {
-        consensus_engine.snapshot(tx, tx, BlockNumber(header.number.0 - 1), header.parent_hash)?;
-    }
-
     let mut call_tracer = CallTracer::default();
-    let receipts = ExecutionProcessor::new(
+    let (more_txs, receipts) = ExecutionProcessor::new(
         &mut buffer,
         &mut call_tracer,
         &mut analysis_cache,
-        &mut *consensus_engine,
+        engine,
         header,
         &block,
         &block_spec,
@@ -178,20 +181,35 @@ fn execute_mining_blocks<E: EnvironmentKind>(
             error,
         },
         DuoError::Internal(e) => StageError::Internal(e.context(format!(
-            "Failed to execute block #{} ({:?})",
+            "Failed to execute block #{:?} ({:?})",
             block_number, block_hash
         ))),
     })?;
+    info!(
+        "mining execute done, with receipts {}, moreTxs {:?}",
+        receipts.len(),
+        more_txs
+    );
 
     buffer.insert_receipts(block_number, receipts);
 
-    {
-        let mut c = tx.cursor(tables::CallTraceSet)?;
-        for (address, CallTracerFlags { from, to }) in call_tracer.into_sorted_iter() {
-            c.append_dup(header.number, CallTraceSetEntry { address, from, to })?;
-        }
+    // TODO MDBX_EKEYMISMATCH: The given key value is mismatched to the current cursor position
+    // {
+    //     let mut c = tx.cursor(tables::CallTraceSet).unwrap();
+    //     for (address, CallTracerFlags { from, to }) in call_tracer.into_sorted_iter() {
+    //         c.append_dup(header.number, CallTraceSetEntry { address, from, to }).unwrap();
+    //     }
+    // }
+    // buffer.write_to_db().unwrap();
+
+    // replace mining block txs
+    for tx in more_txs.unwrap_or(Vec::new()) {
+        current.transactions.push(MessageWithSignature {
+            message: tx.message,
+            signature: tx.signature,
+        });
     }
-    buffer.write_to_db()?;
+
     Ok(block_number)
 }
 

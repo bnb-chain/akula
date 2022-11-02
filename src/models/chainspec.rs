@@ -186,6 +186,22 @@ impl ChainSpec {
         is_forked(self.upgrades.mirrorsync, number)
     }
 
+    pub fn is_london(&self, number: &BlockNumber) -> bool {
+        is_forked(self.upgrades.london, number)
+    }
+
+    pub fn is_berlin(&self, number: &BlockNumber) -> bool {
+        is_forked(self.upgrades.berlin, number)
+    }
+
+    pub fn is_spurious(&self, number: &BlockNumber) -> bool {
+        is_forked(self.upgrades.spurious, number)
+    }
+
+    pub fn is_homestead(&self, number: &BlockNumber) -> bool {
+        is_forked(self.upgrades.homestead, number)
+    }
+
     pub fn is_bruno(&self, number: &BlockNumber) -> bool {
         is_forked(self.upgrades.bruno, number)
     }
