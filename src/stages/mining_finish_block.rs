@@ -33,7 +33,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::io::copy;
-use tracing::{debug, log::warn};
+use tracing::{debug, info, log::warn};
 
 pub const STAGE_FINISH_BLOCK: StageId = StageId("StageFinishBlock");
 // DAOForkExtraRange is the number of consecutive blocks from the DAO fork point
@@ -71,15 +71,14 @@ where
             .map(|(_, b)| b)
             .unwrap_or(BlockNumber(0));
 
-        let (mut header, block) = {
+        let mut block = {
             let mining_block = self.mining_block.lock().unwrap();
-            let header = mining_block.header.clone();
             let block = Block::new(
-                PartialHeader::from(header.clone()),
+                PartialHeader::from(mining_block.header.clone()),
                 mining_block.transactions.clone(),
                 mining_block.ommers.clone(),
             );
-            (header, block)
+            block
         };
 
         if let Err(err) = self
@@ -114,28 +113,28 @@ where
             warn!("mining finish send pending_result_ch err: {:?}", err);
         }
 
-        self.mining_config
+        let success = self
+            .mining_config
             .lock()
             .unwrap()
             .consensus
-            .seal(tx, &mut header)?;
+            .seal(tx, &mut block)?;
 
-        // reconstruct, then broadcast
-        let block = Block::new(
-            PartialHeader::from(header),
-            block.transactions.clone(),
-            block.ommers.clone(),
-        );
-
-        // Broadcast the mined block to other p2p nodes.
-        let sent_request_id = rand::thread_rng().gen();
-        self.node
-            .send_new_mining_block(
-                sent_request_id,
-                block.clone(),
-                block.clone().header.difficulty,
-            )
-            .await;
+        if success {
+            // TODO set correct TD
+            let td = block.header.difficulty;
+            // Broadcast the mined block to other p2p nodes.
+            let sent_request_id = rand::thread_rng().gen();
+            // TODO add mined block into stageSync
+            info!("send_new_mining_block to others, block: {:?}", block);
+            self.node
+                .send_new_mining_block(
+                    sent_request_id,
+                    block,
+                    td,
+                )
+                .await;
+        }
         Ok(ExecOutput::Progress {
             stage_progress: prev_stage,
             done: true,

@@ -321,6 +321,7 @@ mod tests {
                 input,
             },
             sender,
+            signature: Default::default(),
         };
 
         let mut body = BlockBodyWithSenders {

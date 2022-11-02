@@ -9,12 +9,14 @@ use self::fork_choice_graph::ForkChoiceGraph;
 pub use self::{base::*, beacon::*, blockchain::*, clique::*, parlia::*};
 use crate::{
     consensus::vote::VotePool,
+    crypto::signer::ECDSASigner,
     kv::{mdbx::*, tables, MdbxWithDirHandle},
     models::*,
     state::{IntraBlockState, StateReader},
     BlockReader, HeaderReader,
 };
 use anyhow::{anyhow, bail};
+use arrayvec::ArrayVec;
 use derive_more::{Display, From};
 use ethnum::u256;
 use fastrlp::DecodeError;
@@ -127,6 +129,23 @@ pub trait Consensus: Debug + Send + Sync + 'static {
         header_reader: &dyn HeaderReader,
     ) -> anyhow::Result<Vec<FinalizationChange>>;
 
+    /// finalizeAndAssemble block, include add some consensus finalize txs, ommers.
+    /// then finalize state in execution.
+    ///
+    /// TODO notice: akula must return sys txs now, cannot execute inner consensus.
+    ///
+    /// NOTE: For Ethash See YP Section 11.3 "Reward Application".
+    fn finalize_and_assemble(
+        &self,
+        _header: &BlockHeader,
+        _ommers: &[BlockHeader],
+        _transactions: Option<&Vec<MessageWithSender>>,
+        _state: &dyn StateReader,
+        _header_reader: &dyn HeaderReader,
+    ) -> anyhow::Result<(Option<Vec<MessageWithSender>>, Vec<FinalizationChange>)> {
+        Ok((None, Vec::new()))
+    }
+
     /// See YP Section 11.3 "Reward Application".
     fn get_beneficiary(&self, header: &BlockHeader) -> Address {
         header.beneficiary
@@ -171,13 +190,15 @@ pub trait Consensus: Debug + Send + Sync + 'static {
         Ok(())
     }
 
-    /// Seal generates a new sealing request for the given input block
+    /// Seal generates a new sealing request for the given input block.
+    ///
+    /// return bool indicate if block is seal correctly. if false, just skip it.
     fn seal(
         &mut self,
         _header_reader: &dyn HeaderReader,
-        _header: &mut BlockHeader,
-    ) -> anyhow::Result<(), DuoError> {
-        Ok(())
+        _block: &mut Block,
+    ) -> anyhow::Result<bool, DuoError> {
+        Ok(true)
     }
 
     /// To be overridden for consensus validators' snap.
@@ -190,6 +211,10 @@ pub trait Consensus: Debug + Send + Sync + 'static {
     ) -> anyhow::Result<(), DuoError> {
         Ok(())
     }
+
+    /// authorize injects a private key into the consensus engine to mint new blocks
+    /// with.
+    fn authorize(&mut self, _signer: ECDSASigner) {}
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -391,6 +416,12 @@ pub enum ParliaError {
     },
     UnknownVotePool,
     VoteErr(vote::ParliaVoteError),
+    UnknownSigner,
+    UnknownSystemTx,
+    UnknownBlockWhenSeal {
+        number: BlockNumber,
+        hash: H256,
+    },
 }
 impl From<ParliaError> for anyhow::Error {
     fn from(err: ParliaError) -> Self {

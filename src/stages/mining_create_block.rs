@@ -85,7 +85,7 @@ where
         let buffer = Buffer::new(tx, None);
         if self.chain_spec.consensus.is_parlia() {
             let mut config = self.mining_config.lock().unwrap();
-            assert!(config.consensus.prepare(&buffer, &mut proposal).is_ok());
+            config.consensus.prepare(&buffer, &mut proposal)?;
 
             // If we are care about TheDAO hard-fork check whether to override the extra-data or not
             if let Some(dao_block) = &config.dao_fork_block {

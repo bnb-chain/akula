@@ -6,6 +6,7 @@ use sha3::{Digest, Keccak256};
 
 pub mod blake2;
 pub mod go_rng;
+pub mod signer;
 
 /// Concrete `Hasher` impl for the Keccak-256 hash
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
