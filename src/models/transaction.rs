@@ -137,7 +137,7 @@ impl YParityAndChainId {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct MessageSignature {
     odd_y_parity: bool,
     r: H256,
@@ -454,6 +454,7 @@ pub struct MessageWithSender {
     #[deref]
     pub message: Message,
     pub sender: Address,
+    pub signature: MessageSignature,
 }
 
 fn signature_from_compact(

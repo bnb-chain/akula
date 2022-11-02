@@ -260,14 +260,13 @@ impl Node {
                                 .await;
                         }
                         Message::NewBlock(inner) => {
-                            let msg = Message::NewBlock(Box::new(NewBlock {
-                                block: handler.stash.get_block(inner.block.header.hash()).unwrap(),
-                                total_difficulty: inner.total_difficulty,
-                            }));
-
-                            handler
-                                .send_message(msg, PeerFilter::Peer(peer_id, sentry_id))
-                                .await;
+                            //TODO handle P2P network newBlocks, need push into stageSync.
+                            info!(
+                                "recv a new block {:?}:{:?}, from {}",
+                                inner.block.header.number,
+                                inner.block.header.hash(),
+                                inner.block.header.beneficiary
+                            );
                         }
                         _ => unreachable!(),
                     }

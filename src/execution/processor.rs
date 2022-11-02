@@ -14,7 +14,7 @@ use crate::{
 };
 use bytes::Bytes;
 use std::cmp::min;
-use tracing::{debug, info, warn};
+use tracing::*;
 use TransactionAction;
 
 pub struct ExecutionProcessor<'r, 'tracer, 'analysis, 'e, 'h, 'b, 'c, S>
@@ -364,8 +364,10 @@ where
     pub fn execute_block_no_post_validation_while(
         &mut self,
         mut pred: impl FnMut(usize, &MessageWithSender) -> bool,
-    ) -> Result<Vec<Receipt>, DuoError> {
+        is_mining: bool,
+    ) -> Result<(Option<Vec<MessageWithSender>>, Vec<Receipt>), DuoError> {
         let mut receipts = Vec::with_capacity(self.block.transactions.len());
+        let mut more_txs = None;
 
         for (&address, &balance) in &self.block_spec.balance_changes {
             self.state.set_balance(address, balance)?;
@@ -376,7 +378,7 @@ where
 
         for (i, txn) in self.block.transactions.iter().enumerate() {
             if !(pred)(i, txn) {
-                return Ok(receipts);
+                return Ok((more_txs, receipts));
             }
 
             if parlia_engine
@@ -396,13 +398,31 @@ where
             receipts.push(self.execute_transaction(&txn.message, txn.sender)?);
         }
 
-        for change in self.engine.finalize(
-            self.header,
-            &self.block.ommers,
-            Some(&self.block.transactions),
-            &self.state,
-            &self.state,
-        )? {
+        let changes = if is_mining {
+            let (txs, changes) = self.engine.finalize_and_assemble(
+                self.header,
+                &self.block.ommers,
+                Some(&self.block.transactions),
+                &self.state,
+                &self.state,
+            )?;
+            if let Some(txs) = txs {
+                more_txs = Some(txs);
+                for tx in more_txs.as_ref().unwrap().iter() {
+                    system_txs.push(tx);
+                }
+            }
+            changes
+        } else {
+            self.engine.finalize(
+                self.header,
+                &self.block.ommers,
+                Some(&self.block.transactions),
+                &self.state,
+                &self.state,
+            )?
+        };
+        for change in changes {
             match change {
                 FinalizationChange::Reward {
                     address, amount, ..
@@ -416,7 +436,7 @@ where
 
         for (i, txn) in system_txs.iter().enumerate() {
             if !(pred)(i, txn) {
-                return Ok(receipts);
+                return Ok((more_txs, receipts));
             }
 
             self.validate_transaction(&txn.message, txn.sender)
@@ -429,11 +449,14 @@ where
             receipts.push(self.execute_transaction(&txn.message, txn.sender)?);
         }
 
-        Ok(receipts)
+        Ok((more_txs, receipts))
     }
 
-    pub fn execute_block_no_post_validation(&mut self) -> Result<Vec<Receipt>, DuoError> {
-        self.execute_block_no_post_validation_while(|_, _| true)
+    pub fn execute_block_no_post_validation(
+        &mut self,
+        is_mining: bool,
+    ) -> Result<(Option<Vec<MessageWithSender>>, Vec<Receipt>), DuoError> {
+        self.execute_block_no_post_validation_while(|_, _| true, is_mining)
     }
 
     pub fn execute_and_check_block(&mut self) -> Result<Vec<Receipt>, DuoError> {
@@ -441,7 +464,7 @@ where
             self.header,
             ConsensusNewBlockState::handle(self.chain_spec, self.header, &mut self.state)?,
         )?;
-        let receipts = self.execute_block_no_post_validation()?;
+        let (_, receipts) = self.execute_block_no_post_validation(false)?;
 
         let gas_used = receipts.last().map(|r| r.cumulative_gas_used).unwrap_or(0);
 
@@ -508,16 +531,18 @@ where
         Ok(receipts)
     }
 
-    pub fn execute_and_write_block_no_check(mut self) -> Result<Vec<Receipt>, DuoError> {
+    pub fn execute_and_write_block_no_check(
+        mut self,
+    ) -> Result<(Option<Vec<MessageWithSender>>, Vec<Receipt>), DuoError> {
         self.engine.new_block(
             self.header,
             ConsensusNewBlockState::handle(self.chain_spec, self.header, &mut self.state)?,
         )?;
-        let receipts = self.execute_block_no_post_validation()?;
+        let res = self.execute_block_no_post_validation(true)?;
 
         self.state.write_to_state(self.header.number)?;
 
-        Ok(receipts)
+        Ok(res)
     }
 }
 

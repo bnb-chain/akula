@@ -12,19 +12,21 @@ pub use util::*;
 
 use super::*;
 use crate::execution::{analysis_cache::AnalysisCache, evmglue, tracer::NoopTracer};
-use std::str;
+use std::{str, thread};
 use vote::*;
 
 use crate::{
     consensus::{ParliaError, ValidationError},
-    crypto::go_rng::{RngSource, Shuffle},
+    crypto::{
+        go_rng::{RngSource, Shuffle},
+        signer::ECDSASigner,
+    },
     models::*,
     p2p::node::Node,
     HeaderReader, StageId,
 };
 use bitset::BitSet;
-use bytes::{Buf, Bytes, BytesMut};
-use clap::builder::Str;
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use ethabi::FunctionOutputDecoder;
 use ethabi_contract::use_contract;
 use ethereum_types::{Address, H256};
@@ -35,7 +37,7 @@ use milagro_bls::{AggregateSignature, PublicKey};
 use parking_lot::RwLock;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
 use tokio::sync::watch::Receiver as WatchReceiver;
 use tracing::*;
@@ -82,6 +84,8 @@ const INIT_TX_NUM: usize = 7;
 const BACKOFF_TIME_OF_INITIAL: u64 = 1_u64;
 /// Random additional delay (per signer) to allow concurrent signers, second
 const BACKOFF_TIME_OF_WIGGLE: u64 = 1_u64;
+/// process delay (per signer) to allow concurrent signers, second
+const BACKOFF_TIME_OF_PROCESS: u64 = 1_u64;
 /// Maximum the gas limit may ever be.
 const MAX_GAS_LIMIT_CAP: u64 = 0x7fffffffffffffff_u64;
 /// The bound divisor of the gas limit, used in update calculations.
@@ -168,6 +172,7 @@ pub struct Parlia {
     new_block_state: ParliaNewBlockState,
     miner: Address,
     vote_pool: Option<Arc<Mutex<VotePool>>>,
+    signer: Option<ECDSASigner>,
 }
 
 impl Parlia {
@@ -196,6 +201,7 @@ impl Parlia {
                     new_block_state: ParliaNewBlockState::new(None),
                     miner: Default::default(),
                     vote_pool: Some(Arc::clone(&pool)),
+                    signer: None,
                 });
                 let posa = Arc::clone(&(parlia as Arc<dyn PoSA>));
                 pool.lock().set_engine(Arc::clone(&posa));
@@ -225,6 +231,7 @@ impl Parlia {
             new_block_state: ParliaNewBlockState::new(None),
             miner: Default::default(),
             vote_pool,
+            signer: None,
         }
     }
 
@@ -289,7 +296,7 @@ impl Parlia {
                 &header.extra_data[EXTRA_VANITY_LEN..(header.extra_data.len() - EXTRA_SEAL_LEN)],
             )?;
             debug!(
-                "epoch validators check {}, {}:{}",
+                "epoch validators check {:?}, {}:{}",
                 header.number,
                 actual_validators.len(),
                 expect_validators.len()
@@ -651,7 +658,7 @@ impl Parlia {
         &self,
         header_reader: &dyn HeaderReader,
         header: &BlockHeader,
-    ) -> anyhow::Result<Option<Message>, DuoError> {
+    ) -> anyhow::Result<Option<Bytes>, DuoError> {
         if header.number.0 % self.epoch != 0 {
             return Ok(None);
         }
@@ -730,15 +737,8 @@ impl Parlia {
             validator_set_in_boneh::functions::distribute_finality_reward::encode_input(
                 validators, weights,
             );
-        Ok(Some(Message::Legacy {
-            chain_id: Some(self.chain_id),
-            nonce: Default::default(),
-            gas_price: U256::ZERO,
-            gas_limit: (std::u64::MAX / 2).into(),
-            value: U256::ZERO,
-            action: TransactionAction::Call(*VALIDATOR_CONTRACT),
-            input: Bytes::from(input_data),
-        }))
+
+        Ok(Some(Bytes::from(input_data)))
     }
 
     fn find_snapshot(
@@ -799,7 +799,11 @@ impl Parlia {
     }
 
     /// prepare_validators, pack current validators into header when epoch block.
-    fn prepare_validators(&self, header: &mut BlockHeader) -> anyhow::Result<(), DuoError> {
+    fn prepare_validators(
+        &self,
+        header: &BlockHeader,
+        extra: &mut BytesMut,
+    ) -> anyhow::Result<(), DuoError> {
         if header.number.0 % self.epoch != 0 {
             return Ok(());
         }
@@ -809,25 +813,18 @@ impl Parlia {
             .get_validators()
             .ok_or(ParliaError::CacheValidatorsUnknown)?;
         if !self.chain_spec.is_boneh(&header.number) {
-            let mut tmp =
-                BytesMut::with_capacity(header.extra_data.len() + vals.len() * EXTRA_VALIDATOR_LEN);
-            tmp.extend_from_slice(&header.extra_data[..]);
+            extra.extend_from_slice(&header.extra_data[..]);
             for v in vals.iter() {
-                tmp.extend_from_slice(v.as_bytes());
+                extra.extend_from_slice(v.as_bytes());
             }
-            header.extra_data = tmp.freeze();
         } else {
-            let mut tmp = BytesMut::with_capacity(
-                header.extra_data.len() + vals.len() * EXTRA_VALIDATOR_LEN_IN_BONEH + 1,
-            );
-            tmp.extend_from_slice(&header.extra_data[..]);
-            tmp.extend_from_slice(&vals.len().to_be_bytes());
+            extra.extend_from_slice(&header.extra_data[..]);
+            extra.extend_from_slice(&vals.len().to_be_bytes());
             for v in vals.iter() {
-                tmp.extend_from_slice(v.as_bytes());
+                extra.extend_from_slice(v.as_bytes());
                 let bk = bls_keys.get(v).ok_or(ParliaError::CacheValidatorsUnknown)?;
-                tmp.extend_from_slice(bk.as_bytes());
+                extra.extend_from_slice(bk.as_bytes());
             }
-            header.extra_data = tmp.freeze();
         }
 
         Ok(())
@@ -913,15 +910,213 @@ impl Parlia {
 
             let seal_start = header.extra_data.len() - EXTRA_SEAL_LEN;
             let mut new_extra = BytesMut::with_capacity(header.extra_data.len() + buf.len());
-            new_extra.copy_from_slice(&header.extra_data[..seal_start]);
-            new_extra.copy_from_slice(&buf);
-            new_extra.copy_from_slice(&header.extra_data[seal_start..]);
+            new_extra.extend_from_slice(&header.extra_data[..seal_start]);
+            new_extra.extend_from_slice(&buf);
+            new_extra.extend_from_slice(&header.extra_data[seal_start..]);
 
             // replace with new extra data
             header.extra_data = new_extra.freeze();
         }
 
         Ok(())
+    }
+
+    /// construct a parlia necessary system tx into blocks.
+    fn construct_sys_tx(
+        &self,
+        nonce: &mut u64,
+        to: Address,
+        value: U256,
+        input: Bytes,
+        is_mining: bool,
+        tx_iter: &mut std::slice::Iter<&MessageWithSender>,
+    ) -> anyhow::Result<MessageWithSender, DuoError> {
+        let msg = Message::Legacy {
+            chain_id: Some(self.chain_id),
+            nonce: *nonce,
+            gas_price: U256::ZERO,
+            gas_limit: u64::MAX / 2,
+            value,
+            action: TransactionAction::Call(to),
+            input,
+        };
+
+        // increment consensus signer's nonce.
+        *nonce += 1;
+
+        if is_mining {
+            // if mining, construct miner's systemTx, and sign it.
+            let signer = self.signer.as_ref().ok_or(ParliaError::UnknownSigner)?;
+            let signature = signer.sign_tx(&msg)?;
+            Ok(MessageWithSender {
+                message: msg,
+                sender: signer.addr(),
+                signature,
+            })
+        } else {
+            // if not mining, compare with source systemTx
+            let src = tx_iter.next().ok_or(ParliaError::UnknownSystemTx)?;
+            if src.message.hash() != msg.hash() {
+                return Err(ParliaError::SystemTxWrong {
+                    expect: src.message.clone(),
+                    got: msg,
+                }
+                .into());
+            }
+            Ok(MessageWithSender {
+                message: msg,
+                sender: src.sender,
+                signature: src.signature.clone(),
+            })
+        }
+    }
+
+    fn finalize_the_block(
+        &self,
+        header: &BlockHeader,
+        transactions: Option<&Vec<MessageWithSender>>,
+        state: &dyn StateReader,
+        header_reader: &dyn HeaderReader,
+        is_mining: bool,
+    ) -> anyhow::Result<Vec<MessageWithSender>> {
+        // attach epoch info when epoch chg
+        if header.number % self.epoch == 0 {
+            self.verify_epoch_chg(&header)?;
+        }
+
+        let mut expect_txs = Vec::new();
+        if let Some(transactions) = transactions {
+            let system_txs: Vec<&MessageWithSender> = transactions
+                .iter()
+                .filter(|tx| is_system_transaction(&tx.message, &tx.sender, &header.beneficiary))
+                .collect();
+            let mut nonce = state
+                .read_account(header.beneficiary)?
+                .and_then(|a| Some(a.nonce))
+                .unwrap_or(0_u64);
+            let mut sys_tx_iter = system_txs.iter();
+
+            // attach initContracts txs when block=1
+            if header.number == 1 {
+                let contracts = vec![
+                    *VALIDATOR_CONTRACT,
+                    *SLASH_CONTRACT,
+                    *LIGHT_CLIENT_CONTRACT,
+                    *RELAYER_HUB_CONTRACT,
+                    *TOKEN_HUB_CONTRACT,
+                    *RELAYER_INCENTIVIZE_CONTRACT,
+                    *CROSS_CHAIN_CONTRACT,
+                ];
+                let input = validator_ins::functions::init::encode_input();
+                for c in contracts {
+                    expect_txs.push(self.construct_sys_tx(
+                        &mut nonce,
+                        c,
+                        U256::ZERO,
+                        Bytes::copy_from_slice(&input[..]),
+                        is_mining,
+                        &mut sys_tx_iter,
+                    )?);
+                }
+            }
+
+            // attach slash system tx
+            if header.difficulty != DIFF_INTURN {
+                let snap =
+                    self.find_snapshot(header_reader, header.number.parent(), header.parent_hash)?;
+                let proposer = snap.suppose_validator();
+                let had_proposed = snap
+                    .recent_proposers
+                    .iter()
+                    .find(|(_, v)| **v == proposer)
+                    .map(|_| true)
+                    .unwrap_or(false);
+
+                if !had_proposed {
+                    let slash_data: Vec<u8> = slash_ins::functions::slash::encode_input(proposer);
+                    expect_txs.push(self.construct_sys_tx(
+                        &mut nonce,
+                        *SLASH_CONTRACT,
+                        U256::ZERO,
+                        Bytes::from(slash_data),
+                        is_mining,
+                        &mut sys_tx_iter,
+                    )?);
+                }
+            }
+
+            // attach reward system tx
+            let mut total_reward = state
+                .read_account(*SYSTEM_ACCOUNT)?
+                .and_then(|a| Some(a.balance))
+                .unwrap_or(U256::ZERO);
+            let sys_reward_collected = state
+                .read_account(*SYSTEM_REWARD_CONTRACT)?
+                .and_then(|a| Some(a.balance))
+                .unwrap_or(U256::ZERO);
+
+            if total_reward > U256::ZERO {
+                // check if contribute to SYSTEM_REWARD_CONTRACT
+                let to_sys_reward = total_reward >> SYSTEM_REWARD_PERCENT;
+                let max_reward = U256::from_str_hex(MAX_SYSTEM_REWARD)?;
+                if to_sys_reward > U256::ZERO && sys_reward_collected < max_reward {
+                    expect_txs.push(self.construct_sys_tx(
+                        &mut nonce,
+                        *SYSTEM_REWARD_CONTRACT,
+                        to_sys_reward,
+                        Bytes::new(),
+                        is_mining,
+                        &mut sys_tx_iter,
+                    )?);
+                    total_reward -= to_sys_reward;
+                    debug!(
+                        "SYSTEM_REWARD_CONTRACT, block {}, reward {}",
+                        header.number, to_sys_reward
+                    );
+                }
+
+                // left reward contribute to VALIDATOR_CONTRACT
+                debug!(
+                    "VALIDATOR_CONTRACT, block {}, reward {}",
+                    header.number, total_reward
+                );
+                let input_data =
+                    validator_ins::functions::deposit::encode_input(header.beneficiary);
+                expect_txs.push(self.construct_sys_tx(
+                    &mut nonce,
+                    *VALIDATOR_CONTRACT,
+                    total_reward,
+                    Bytes::from(input_data),
+                    is_mining,
+                    &mut sys_tx_iter,
+                )?);
+            }
+
+            // if after lynn, distribute fast finality reward
+            if self.chain_spec.is_lynn(&header.number) {
+                let reward_data = self.distribute_finality_reward(header_reader, &header)?;
+                if let Some(reward_data) = reward_data {
+                    expect_txs.push(self.construct_sys_tx(
+                        &mut nonce,
+                        *VALIDATOR_CONTRACT,
+                        U256::ZERO,
+                        reward_data,
+                        is_mining,
+                        &mut sys_tx_iter,
+                    )?);
+                }
+            }
+
+            if sys_tx_iter.len() > 0 {
+                return Err(ParliaError::SystemTxWrongCount {
+                    expect: expect_txs.len(),
+                    got: system_txs.len(),
+                }
+                .into());
+            }
+        }
+
+        Ok(expect_txs)
     }
 }
 
@@ -946,15 +1141,36 @@ impl Consensus for Parlia {
         )?;
         header.difficulty = calculate_difficulty(&snap, &header.beneficiary);
 
-        if header.extra_data.len() < VANITY_LENGTH - NEXT_FORK_HASH_SIZE {
-            let mut extra = header.extra_data.clone().slice(..).to_vec();
-            while extra.len() < EXTRA_VANITY {
-                extra.push(0);
+        // build header extra
+        let mut extra = BytesMut::from(&header.extra_data[..]);
+        if extra.len() < VANITY_LENGTH - NEXT_FORK_HASH_SIZE {
+            for _ in 0..VANITY_LENGTH - NEXT_FORK_HASH_SIZE - extra.len() {
+                extra.put_u8(0);
             }
-            header.extra_data = Bytes::copy_from_slice(extra.clone().as_slice());
-            // append validators
-            self.prepare_validators(header)?;
         }
+        // TODO attach fork hash
+        // nextForkHash := forkid.NextForkHashFromForks(p.forks, p.genesisHash, number)
+        // header.Extra = append(header.Extra, nextForkHash[:]...)
+        if extra.len() < VANITY_LENGTH {
+            for _ in 0..VANITY_LENGTH - extra.len() {
+                extra.put_u8(0);
+            }
+        }
+        // attach validators
+        self.prepare_validators(header, &mut extra)?;
+
+        // add extra seal space
+        extra.extend_from_slice([0_u8; EXTRA_SEAL_LEN].as_slice());
+        header.extra_data = extra.freeze();
+
+        // Mix digest is reserved for now, set to empty
+        header.mix_hash = H256::zero();
+
+        // TODO Ensure the timestamp has the correct delay
+        // header.Time = self.blockTimeForRamanujanFork(snap, header, parent);
+        // if header.Time < uint64(time.Now().Unix()) {
+        //     header.Time = uint64(time.Now().Unix())
+        // }
 
         Ok(())
     }
@@ -1005,7 +1221,7 @@ impl Consensus for Parlia {
                     return Err(err);
                 }
                 warn!(
-                    "verify_vote_attestation err, block {}:{:?}, err: {}",
+                    "verify_vote_attestation err, block {:?}:{:?}, err: {:?}",
                     header.number,
                     header.hash(),
                     err
@@ -1029,132 +1245,22 @@ impl Consensus for Parlia {
         state: &dyn StateReader,
         header_reader: &dyn HeaderReader,
     ) -> anyhow::Result<Vec<FinalizationChange>> {
-        // check epoch validators chg correctly
-        if header.number % self.epoch == 0 {
-            self.verify_epoch_chg(header)?;
-        }
-
-        // if set transactions, check systemTxs and reward if correct
-        // must set transactions in sync
-        if let Some(transactions) = transactions {
-            //TODO if txs empty, skip for empty block
-            if transactions.len() == 0 {
-                return Ok(Vec::new());
-            }
-            let mut system_txs: Vec<&MessageWithSender> = transactions
-                .iter()
-                .filter(|tx| is_system_transaction(&tx.message, &tx.sender, &header.beneficiary))
-                .collect();
-            if header.number == 1 {
-                // skip block=1, first 7 init system transactions
-                system_txs = system_txs[INIT_TX_NUM..].to_vec();
-            }
-
-            let mut expect_txs = Vec::new();
-            if header.difficulty != DIFF_INTURN {
-                debug!("check in turn {}", header.number);
-                let snap = self.find_snapshot(
-                    header_reader,
-                    BlockNumber(header.number.0 - 1),
-                    header.parent_hash,
-                )?;
-                let proposer = snap.suppose_validator();
-                let had_proposed = snap
-                    .recent_proposers
-                    .iter()
-                    .find(|(_, v)| **v == proposer)
-                    .map(|_| true)
-                    .unwrap_or(false);
-
-                if !had_proposed {
-                    let slash_data: Vec<u8> = slash_ins::functions::slash::encode_input(proposer);
-                    expect_txs.push(Message::Legacy {
-                        chain_id: Some(self.chain_id),
-                        nonce: Default::default(),
-                        gas_price: U256::ZERO,
-                        gas_limit: (std::u64::MAX / 2).into(),
-                        value: U256::ZERO,
-                        action: TransactionAction::Call(*SLASH_CONTRACT),
-                        input: Bytes::from(slash_data),
-                    });
-                }
-            }
-
-            let mut total_reward = state
-                .read_account(*SYSTEM_ACCOUNT)?
-                .and_then(|a| Some(a.balance))
-                .unwrap_or(U256::ZERO);
-            let sys_reward_collected = state
-                .read_account(*SYSTEM_REWARD_CONTRACT)?
-                .and_then(|a| Some(a.balance))
-                .unwrap_or(U256::ZERO);
-
-            if total_reward > U256::ZERO {
-                // check if contribute to SYSTEM_REWARD_CONTRACT
-                let to_sys_reward = total_reward >> SYSTEM_REWARD_PERCENT;
-                let max_reward = U256::from_str_hex(MAX_SYSTEM_REWARD)?;
-                if to_sys_reward > U256::ZERO && sys_reward_collected < max_reward {
-                    expect_txs.push(Message::Legacy {
-                        chain_id: Some(self.chain_id),
-                        nonce: Default::default(),
-                        gas_price: U256::ZERO,
-                        gas_limit: (std::u64::MAX / 2).into(),
-                        value: to_sys_reward,
-                        action: TransactionAction::Call(SYSTEM_REWARD_CONTRACT.clone()),
-                        input: Bytes::new(),
-                    });
-                    total_reward -= to_sys_reward;
-                    debug!(
-                        "SYSTEM_REWARD_CONTRACT, block {}, reward {}",
-                        header.number, to_sys_reward
-                    );
-                }
-
-                // left reward contribute to VALIDATOR_CONTRACT
-                debug!(
-                    "VALIDATOR_CONTRACT, block {}, reward {}",
-                    header.number, total_reward
-                );
-                let input_data =
-                    validator_ins::functions::deposit::encode_input(header.beneficiary);
-                expect_txs.push(Message::Legacy {
-                    chain_id: Some(self.chain_id),
-                    nonce: Default::default(),
-                    gas_price: U256::ZERO,
-                    gas_limit: (std::u64::MAX / 2).into(),
-                    value: total_reward,
-                    action: TransactionAction::Call(*VALIDATOR_CONTRACT),
-                    input: Bytes::from(input_data),
-                });
-            }
-
-            // if after lynn, distribute fast finality reward
-            if self.chain_spec.is_lynn(&header.number) {
-                let reward_tx = self.distribute_finality_reward(header_reader, header)?;
-                if let Some(tx) = reward_tx {
-                    expect_txs.push(tx);
-                }
-            }
-
-            if system_txs.len() != expect_txs.len() {
-                return Err(ParliaError::SystemTxWrongCount {
-                    expect: expect_txs.len(),
-                    got: system_txs.len(),
-                }
-                .into());
-            }
-            for (i, expect) in expect_txs.iter().enumerate() {
-                let actual = system_txs.get(i).unwrap();
-                if !is_similar_tx(expect, &actual.message) {
-                    return Err(ParliaError::SystemTxWrong {
-                        expect: expect.clone(),
-                        got: actual.message.clone(),
-                    }
-                    .into());
-                }
-            }
-        }
+        self.finalize_the_block(header, transactions, state, header_reader, false)?;
         Ok(Vec::new())
+    }
+
+    fn finalize_and_assemble(
+        &self,
+        header: &BlockHeader,
+        _ommers: &[BlockHeader],
+        transactions: Option<&Vec<MessageWithSender>>,
+        state: &dyn StateReader,
+        header_reader: &dyn HeaderReader,
+    ) -> anyhow::Result<(Option<Vec<MessageWithSender>>, Vec<FinalizationChange>)> {
+        Ok((
+            Some(self.finalize_the_block(&header, transactions, state, header_reader, true)?),
+            Vec::new(),
+        ))
     }
 
     fn new_block(
@@ -1169,13 +1275,93 @@ impl Consensus for Parlia {
         Err(ParliaError::WrongConsensusParam.into())
     }
 
-    // TODO: Seal block!
     fn seal(
         &mut self,
-        _header_reader: &dyn HeaderReader,
-        _header: &mut BlockHeader,
-    ) -> anyhow::Result<(), DuoError> {
-        Ok(())
+        header_reader: &dyn HeaderReader,
+        block: &mut Block,
+    ) -> anyhow::Result<bool, DuoError> {
+        let header = &block.header;
+        let block_number = header.number;
+        let block_hash = header.hash();
+
+        if block_number.0 == 0 {
+            return Err(ParliaError::UnknownBlockWhenSeal {
+                number: header.number,
+                hash: block_hash,
+            }
+            .into());
+        }
+
+        // For 0-period chains, refuse to seal empty blocks (no reward but would spin sealing)
+        if self.period == 0 && block.transactions.len() == 0 {
+            info!(
+                "cannot sealing, waiting for transactions, block {:?}:{:?}",
+                block_number, block_hash
+            );
+            return Ok(false);
+        }
+
+        let snap = self.find_snapshot(header_reader, block_number.parent(), header.parent_hash)?;
+        let signer = self.signer.as_ref().ok_or(ParliaError::UnknownSigner)?;
+        let proposer = signer.addr();
+        if !snap.validators.contains(&proposer) {
+            return Err(ParliaError::SignerUnauthorized {
+                number: block_number,
+                signer: proposer,
+            }
+            .into());
+        }
+
+        // if we're amongst the recent signers, wait for the next block
+        for (last, val) in snap.recent_proposers {
+            if proposer == val {
+                let limit = (snap.validators.len() / 2 + 1) as u64;
+                if block_number.0 < limit || last > block_number.0 - limit {
+                    info!(
+                        "signed recently, must wait for others, block {:?}:{:?}",
+                        block_number, block_hash
+                    );
+                    return Ok(false);
+                }
+            }
+        }
+
+        // TODO Sweet, the protocol permits us to sign the block, wait for our time
+        // let delay = self.delayForRamanujanFork(snap, header);
+        let delay = 1_u64;
+
+        info!("consensus seal the block {:?}:{:?}, proposer: {:?}, delay: {}, difficulty: {}, gasUsed: {}, txsRoot: {:?}, stateRoot: {:?}",
+            block_number, block_hash, proposer, delay, header.difficulty, header.gas_used, header.transactions_root, header.state_root
+        );
+
+        // sign and attach to extra_data
+        let mut sign_header = header.clone();
+        sign_header.extra_data =
+            Bytes::copy_from_slice(&header.extra_data[..header.extra_data.len() - EXTRA_SEAL_LEN]);
+        let sig = signer.sign_block(&sign_header, self.chain_id)?;
+        let mut tmp = BytesMut::with_capacity(header.extra_data.len());
+        tmp.extend_from_slice(&header.extra_data[..header.extra_data.len() - EXTRA_SEAL_LEN]);
+        tmp.extend_from_slice(&sig[..]);
+        block.header.extra_data = tmp.freeze();
+
+        //TODO tmp sync delay
+        thread::sleep(Duration::from_secs(delay));
+
+        // TODO add wait block process
+        // if self.shouldWaitForCurrentBlockProcess(header_reader, header, snap) {
+        //     info!(
+        //         "waiting for received in turn block to process, block {:?}:{:?}",
+        //         block_number, block_hash
+        //     );
+        //
+        //     //TODO tmp sync delay
+        //     thread::sleep(Duration::from_secs(BACKOFF_TIME_OF_PROCESS));
+        //     info!(
+        //         "process backoff time exhausted, start to seal block, block {:?}:{:?}",
+        //         block_number, block_hash
+        //     );
+        // }
+        Ok(true)
     }
 
     fn snapshot(
@@ -1243,6 +1429,10 @@ impl Consensus for Parlia {
             snap_db.write_parlia_snap(&snap)?;
         }
         return Ok(());
+    }
+
+    fn authorize(&mut self, signer: ECDSASigner) {
+        self.signer = Some(signer);
     }
 }
 

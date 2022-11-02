@@ -129,6 +129,7 @@ mod tests {
                 access_list: Default::default(),
             },
             sender,
+            signature: Default::default(),
         };
 
         let tx = (t)(TransactionAction::Create, deployment_code.into(), 0, 0);

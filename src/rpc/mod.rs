@@ -309,8 +309,8 @@ pub mod helpers {
         );
 
         processor
-            .execute_block_no_post_validation()
-            .map(|receipts| {
+            .execute_block_no_post_validation(false)
+            .map(|(_, receipts)| {
                 let mut last_cumul_gas_used = 0;
                 receipts
                     .into_iter()

@@ -3,6 +3,7 @@ use akula::{
     akula_tracing::{self, Component},
     binutil::AkulaDataDir,
     consensus::{engine_factory, Consensus, ForkChoiceMode, InitialParams, ParliaInitialParams},
+    crypto::signer::ECDSASigner,
     kv::tables::CHAINDATA_TABLES,
     mining::state::*,
     models::*,
@@ -589,7 +590,7 @@ fn main() -> anyhow::Result<()> {
                 if can_mine {
                     staged_sync.is_mining = true;
                     info!("Running staged mining");
-                    let consensus_config = engine_factory(
+                    let mut consensus_config = engine_factory(
                         Some(db.clone()),
                         chainspec.clone(),
                         Some(opt.engine_listen_address),
@@ -598,6 +599,7 @@ fn main() -> anyhow::Result<()> {
                     tokio::spawn(async move {
                         let mut staged_mining = stagedsync::StagedSync::new();
                         staged_mining.is_mining = true;
+                        consensus_config.authorize(ECDSASigner::from_secret(&opt.mine_secretkey.unwrap()[..]));
                         let config = MiningConfig {
                             enabled: true,
                             ether_base: opt.mine_etherbase.unwrap().clone(),
@@ -635,7 +637,7 @@ fn main() -> anyhow::Result<()> {
                         let mining_block_mutex = Arc::new(Mutex::new(mining_block));
                         let mining_status = MiningStatus::new();
                         let mining_status_mutex = Arc::new(Mutex::new(mining_status));
-                        staged_mining.push(
+                            staged_mining.push(
                             CreateBlock {
                                 mining_status: Arc::clone(&mining_status_mutex),
                                 mining_block: Arc::clone(&mining_block_mutex),
