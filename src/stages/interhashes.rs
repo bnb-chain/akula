@@ -1,16 +1,19 @@
 use crate::{
     accessors,
-    consensus::DuoError,
+    consensus::{DuoError, ValidationError},
     kv::mdbx::*,
     models::*,
     stagedsync::stage::{ExecOutput, Stage, StageError, StageInput, UnwindInput, UnwindOutput},
-    stages::stage_util::should_do_clean_promotion,
+    stages::{stage_util::should_do_clean_promotion, MiningBlock},
     trie::*,
     StageId,
 };
 use anyhow::format_err;
 use async_trait::async_trait;
-use std::{cmp, sync::Arc};
+use std::{
+    cmp,
+    sync::{Arc, Mutex},
+};
 use tempfile::TempDir;
 use tracing::*;
 
@@ -21,13 +24,19 @@ pub const INTERMEDIATE_HASHES: StageId = StageId("IntermediateHashes");
 pub struct Interhashes {
     temp_dir: Arc<TempDir>,
     clean_promotion_threshold: u64,
+    mining_block: Option<Arc<Mutex<MiningBlock>>>,
 }
 
 impl Interhashes {
-    pub fn new(temp_dir: Arc<TempDir>, clean_promotion_threshold: Option<u64>) -> Self {
+    pub fn new(
+        temp_dir: Arc<TempDir>,
+        clean_promotion_threshold: Option<u64>,
+        mining_block: Option<Arc<Mutex<MiningBlock>>>,
+    ) -> Self {
         Self {
             temp_dir,
             clean_promotion_threshold: clean_promotion_threshold.unwrap_or(1_000_000_000_000),
+            mining_block,
         }
     }
 }
@@ -57,10 +66,6 @@ where
         let past_progress = input.stage_progress.unwrap_or(genesis);
 
         if max_block > past_progress {
-            let block_state_root = accessors::chain::header::read(tx, max_block)?
-                .ok_or_else(|| format_err!("No header for block {}", max_block))?
-                .state_root;
-
             let trie_root = if should_do_clean_promotion(
                 tx,
                 genesis,
@@ -69,15 +74,10 @@ where
                 self.clean_promotion_threshold,
             )? {
                 debug!("Regenerating intermediate hashes");
-                regenerate_intermediate_hashes(tx, self.temp_dir.as_ref(), Some(block_state_root))
+                regenerate_intermediate_hashes(tx, self.temp_dir.as_ref(), None)
             } else {
                 debug!("Incrementing intermediate hashes");
-                increment_intermediate_hashes(
-                    tx,
-                    self.temp_dir.as_ref(),
-                    past_progress,
-                    Some(block_state_root),
-                )
+                increment_intermediate_hashes(tx, self.temp_dir.as_ref(), past_progress, None)
             }
             .map_err(|e| match e {
                 DuoError::Validation(error) => StageError::Validation {
@@ -89,7 +89,24 @@ where
                 }
             })?;
 
-            info!("Block #{} state root OK: {:?}", max_block, trie_root)
+            info!("Block #{} state root OK: {:?}", max_block, trie_root);
+
+            if let Some(mining_block) = self.mining_block.as_ref() {
+                mining_block.lock().unwrap().header.state_root = trie_root;
+            } else {
+                // check header root
+                let block_state_root = accessors::chain::header::read(tx, max_block)?
+                    .ok_or_else(|| format_err!("No header for block {}", max_block))?
+                    .state_root;
+
+                if block_state_root != trie_root {
+                    return Err(DuoError::Validation(ValidationError::WrongStateRoot {
+                        expected: block_state_root,
+                        got: trie_root,
+                    })
+                    .into());
+                }
+            }
         };
 
         Ok(ExecOutput::Progress {

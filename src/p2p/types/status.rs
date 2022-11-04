@@ -4,15 +4,19 @@ use crate::models::*;
 pub struct Status {
     pub height: BlockNumber,
     pub hash: H256,
+    pub parent_hash: H256,
     pub total_difficulty: H256,
+    pub td: U256,
 }
 
 impl Status {
-    pub fn new(height: BlockNumber, hash: H256, td: U256) -> Self {
+    pub fn new(height: BlockNumber, hash: H256, parent_hash: H256, td: U256) -> Self {
         Self {
             height,
             hash,
+            parent_hash,
             total_difficulty: H256::from(td.to_be_bytes()),
+            td
         }
     }
 }
@@ -26,7 +30,9 @@ impl<'a> From<&'a ChainConfig> for Status {
         Self {
             height,
             hash,
+            parent_hash: EMPTY_HASH,
             total_difficulty,
+            td: config.chain_spec.genesis.seal.difficulty(),
         }
     }
 }

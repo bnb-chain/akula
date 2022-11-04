@@ -155,12 +155,13 @@ where
                     let current_chain_tip = loop {
                         let _ = chain_tip.changed().await;
                         let (n, _) = *chain_tip.borrow();
+                        info!("try get Chain tip={}", n);
                         if n > prev_progress {
                             break n;
                         }
                     };
 
-                    debug!("Chain tip={}", current_chain_tip);
+                    info!("Chain tip={}", current_chain_tip);
 
                     let (mut target_block, mut reached_tip) = Self::forward_set_target_block(
                         prev_progress,
@@ -205,6 +206,10 @@ where
                         {
                             // Check that downloaded headers attach to present chain
                             if let Some((_, first_downloaded)) = downloaded.first() {
+                                info!(
+                                    "prev_progress_hash {}:{:?}, first_downloaded: {:?}",
+                                    prev_progress, prev_progress_hash, first_downloaded
+                                );
                                 if let Some((_, last_buffered)) = headers.last() {
                                     if last_buffered.hash() != first_downloaded.parent_hash {
                                         // Does not attach to buffered chain, just pop last header and download again
@@ -555,6 +560,13 @@ impl HeaderDownload {
 
         if let Some(first) = headers.first() {
             if prev_progress_header.hash() != first.1.parent_hash {
+                info!(
+                    "Difficulty graph first, prev {}:{:?}, first: {}:{:?}, will unwind",
+                    prev_progress_header.number,
+                    prev_progress_header.hash(),
+                    first.1.number,
+                    first.1.parent_hash
+                );
                 return Ok(None);
             }
         }
@@ -652,9 +664,10 @@ impl HeaderDownload {
         txn: &'tx mut MdbxTransaction<'_, RW, E>,
         height: BlockNumber,
     ) -> anyhow::Result<()> {
+        let block = txn.get(tables::Header, height)?.unwrap();
         let hash = txn.get(tables::CanonicalHeader, height)?.unwrap();
         let td = txn.get(tables::HeadersTotalDifficulty, height)?.unwrap();
-        let status = Status::new(height, hash, td);
+        let status = Status::new(height, hash, block.parent_hash, td);
         self.node.update_chain_head(Some(status)).await;
         Ok(())
     }

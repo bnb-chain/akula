@@ -32,6 +32,7 @@ use std::{
 };
 use tokio::sync::watch;
 use tracing::*;
+use crate::p2p::node::Node;
 
 #[derive(Debug)]
 pub enum FinalizationChange {
@@ -195,8 +196,9 @@ pub trait Consensus: Debug + Send + Sync + 'static {
     /// return bool indicate if block is seal correctly. if false, just skip it.
     fn seal(
         &mut self,
+        _node: Arc<Node>,
         _header_reader: &dyn HeaderReader,
-        _block: &mut Block,
+        mut _block: Block,
     ) -> anyhow::Result<bool, DuoError> {
         Ok(true)
     }

@@ -8,6 +8,7 @@ use crate::{
         state::*,
     },
     models::*,
+    p2p::node::Node,
     stagedsync::stage::*,
     state::Buffer,
     StageId,
@@ -33,7 +34,7 @@ pub const CREATE_BLOCK: StageId = StageId("CreateBlock");
 // to override the extra-data in to prevent no-fork attacks.
 pub const DAOFORKEXTRARANG: i32 = 10;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct MiningBlock {
     pub header: BlockHeader,
     pub ommers: ArrayVec<BlockHeader, 2>,
@@ -56,6 +57,7 @@ pub struct CreateBlock {
     pub mining_block: Arc<Mutex<MiningBlock>>,
     pub mining_config: Arc<Mutex<MiningConfig>>,
     pub chain_spec: ChainSpec,
+    pub node: Arc<Node>,
 }
 
 #[async_trait]
@@ -75,7 +77,7 @@ where
     where
         'db: 'tx,
     {
-        let parent_number = input.stage_progress.unwrap_or(BlockNumber(0));
+        let parent_number = input.stage_progress.unwrap();
         let parent_header = get_header(tx, parent_number)?;
 
         // TODO, complete the remaining tx related part after txpool ready.
