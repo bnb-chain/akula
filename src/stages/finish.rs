@@ -5,9 +5,7 @@ use std::sync::{Arc, Mutex};
 pub const FINISH: StageId = StageId("Finish");
 
 #[derive(Debug)]
-pub struct Finish {
-    pub mining_status: Arc<Mutex<MiningStatus>>,
-}
+pub struct Finish;
 
 #[async_trait]
 impl<'db, E> Stage<'db, E> for Finish

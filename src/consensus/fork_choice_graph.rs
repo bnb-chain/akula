@@ -58,6 +58,7 @@ impl ForkChoiceGraph {
         self.skip_list.clear();
         self.chains.clear();
         self.q.clear();
+        info!("fork choice graph clear q {:?}", self.q);
     }
 
     #[inline]
@@ -72,10 +73,12 @@ impl ForkChoiceGraph {
 
     #[inline]
     pub fn insert_with_hash(&mut self, hash: H256, header: BlockHeader) {
+        info!("try insert {}:{:?}", header.number, hash);
         if self.q.contains_key(&hash) {
             return;
         }
 
+        info!("inserted {}:{:?}", header.number, hash);
         self.skip_list
             .entry(header.parent_hash)
             .or_insert_with(HashSet::new)
@@ -94,12 +97,18 @@ impl ForkChoiceGraph {
     pub fn chain_head(&mut self) -> Option<H256> {
         let mut roots = HashSet::new();
 
+        info!(
+            "chain_head skip_list {:?}, raw {:?}, q {:?}",
+            self.skip_list, self.raw, self.q
+        );
         for (hash, _) in self.q.iter() {
+            info!("chain_head q.iter {:?}", hash);
             if !self.skip_list.contains_key(hash) && self.raw.contains_key(hash) {
                 roots.insert(*hash);
             }
         }
         if roots.is_empty() {
+            info!("chain_head got empty roots.");
             return None;
         }
 
@@ -129,6 +138,7 @@ impl ForkChoiceGraph {
             };
             Some(*head_hash)
         } else {
+            info!("chain_head max_by_key none.");
             None
         }
     }

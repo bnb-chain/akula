@@ -13,12 +13,13 @@ use crate::{
         state::*,
     },
     models::{
-        BlockBodyWithSenders, BlockHeader, BlockNumber, ChainSpec, MessageWithSender,
+        BlockBodyWithSenders, BlockHeader, BlockNumber, Bloom, ChainSpec, MessageWithSender,
         MessageWithSignature,
     },
     res::chainspec,
     stagedsync::stage::*,
     state::IntraBlockState,
+    trie::root_hash,
     Buffer, StageId,
 };
 use anyhow::{bail, format_err};
@@ -28,13 +29,14 @@ use hex::FromHex;
 use mdbx::{EnvironmentKind, RW};
 use num_bigint::{BigInt, Sign};
 use num_traits::ToPrimitive;
+use primitive_types::H256;
 use std::{
     cmp::Ordering,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 use tokio::io::copy;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 pub const STAGE_EXEC_BLOCK: StageId = StageId("StageExecBlock");
 // DAOForkExtraRange is the number of consecutive blocks from the DAO fork point
@@ -191,22 +193,24 @@ fn execute_mining_blocks<E: EnvironmentKind>(
         more_txs
     );
 
-    buffer.insert_receipts(block_number, receipts);
+    // save header
+    let mut cursor_header = tx.cursor(tables::Header).unwrap();
+    cursor_header.put(header.number, header.clone()).unwrap();
 
-    // TODO MDBX_EKEYMISMATCH: The given key value is mismatched to the current cursor position
-    // {
-    //     let mut c = tx.cursor(tables::CallTraceSet).unwrap();
-    //     for (address, CallTracerFlags { from, to }) in call_tracer.into_sorted_iter() {
-    //         c.append_dup(header.number, CallTraceSetEntry { address, from, to }).unwrap();
-    //     }
-    // }
-    // buffer.write_to_db().unwrap();
+    // calculate receipts root, bloom and gasUsed
+    current.header.gas_used = receipts.last().map(|r| r.cumulative_gas_used).unwrap_or(0);
+    current.header.logs_bloom = receipts
+        .iter()
+        .fold(Bloom::zero(), |bloom, r| bloom | r.bloom);
+    current.header.receipts_root = root_hash(&receipts);
+    buffer.insert_receipts(block_number, receipts);
+    buffer.write_to_db().unwrap();
 
     // replace mining block txs
-    for tx in more_txs.unwrap_or(Vec::new()) {
+    for t in more_txs.unwrap_or(Vec::new()) {
         current.transactions.push(MessageWithSignature {
-            message: tx.message,
-            signature: tx.signature,
+            message: t.message,
+            signature: t.signature,
         });
     }
 

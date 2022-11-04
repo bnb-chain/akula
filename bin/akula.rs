@@ -5,7 +5,7 @@ use akula::{
     consensus::{engine_factory, Consensus, ForkChoiceMode, InitialParams, ParliaInitialParams},
     crypto::signer::ECDSASigner,
     kv::tables::CHAINDATA_TABLES,
-    mining::state::*,
+    mining::{state::*, StagedMining},
     models::*,
     p2p::node::NodeBuilder,
     rpc::{
@@ -29,7 +29,7 @@ use expanded_pathbuf::ExpandedPathBuf;
 use futures::executor::block_on;
 use http::Uri;
 use jsonrpsee::{
-    core::server::rpc_module::Methods, http_server::HttpServerBuilder, ws_server::WsServerBuilder,
+    core::server::rpc_module::Methods,
     server::ServerBuilder
 };
 use num_bigint::BigInt;
@@ -246,7 +246,6 @@ fn main() -> anyhow::Result<()> {
 
                 let chain_config = ChainConfig::from(chainspec.clone());
 
-                let mining_db = db.clone();
                 if !opt.no_rpc {
                     tokio::spawn({
                         let db = db.clone();
@@ -448,7 +447,7 @@ fn main() -> anyhow::Result<()> {
                         InitialParams::Parlia(ParliaInitialParams {
                             bls_prv_key: opt.bls_secret_key,
                             bls_pub_key: opt.bls_public_key,
-                            node: Some(Arc::clone(&node)),
+                            node: Some(node.clone()),
                             sync_stage: Some(staged_sync.current_stage()),
                         })
                     }
@@ -519,7 +518,7 @@ fn main() -> anyhow::Result<()> {
                 if !opt.skip_commitment {
                     staged_sync.push(HashState::new(etl_temp_dir.clone(), None), true);
                     staged_sync.push_with_unwind_priority(
-                        Interhashes::new(etl_temp_dir.clone(), None),
+                        Interhashes::new(etl_temp_dir.clone(), None, None),
                         true,
                         1,
                     );
@@ -549,7 +548,6 @@ fn main() -> anyhow::Result<()> {
                 staged_sync.push(Finish, true);
 
                 if can_mine {
-                    staged_sync.is_mining = true;
                     info!("Running staged mining");
                     let mut consensus_config = engine_factory(
                         Some(db.clone()),
@@ -557,89 +555,66 @@ fn main() -> anyhow::Result<()> {
                         Some(opt.engine_listen_address),
                         params.clone(),
                     )?;
-                    tokio::spawn(async move {
-                        let mut staged_mining = stagedsync::StagedSync::new();
-                        staged_mining.is_mining = true;
-                        consensus_config.authorize(ECDSASigner::from_secret(&opt.mine_secretkey.unwrap()[..]));
-                        let config = MiningConfig {
-                            enabled: true,
-                            ether_base: opt.mine_etherbase.unwrap().clone(),
-                            secret_key: opt.mine_secretkey.unwrap().clone(),
-                            extra_data: opt.mine_extradata.map(Bytes::from).clone(),
-                            consensus: consensus_config,
-                            dao_fork_block: Some(BigInt::new(num_bigint::Sign::Plus, vec![])),
-                            dao_fork_support: false,
-                            gas_limit: 30000000,
-                        };
-                        let mining_config_mutex = Arc::new(Mutex::new(config));
-                        info!("Mining enabled");
-                        let mining_block = MiningBlock {
-                            header: BlockHeader {
-                                parent_hash: H256::zero(),
-                                ommers_hash: H256::zero(),
-                                beneficiary: Address::zero(),
-                                state_root: H256::zero(),
-                                transactions_root: H256::zero(),
-                                receipts_root: H256::zero(),
-                                logs_bloom: Bloom::zero(),
-                                difficulty: U256::ZERO,
-                                number: BlockNumber(0),
-                                gas_limit: 0,
-                                gas_used: 0,
-                                timestamp: 0,
-                                extra_data: Bytes::new(),
-                                mix_hash: H256::zero(),
-                                nonce: H64::zero(),
-                                base_fee_per_gas: None,
-                            },
-                            ommers: Default::default(),
-                            transactions: vec![],
-                        };
-                        let mining_block_mutex = Arc::new(Mutex::new(mining_block));
-                        let mining_status = MiningStatus::new();
-                        let mining_status_mutex = Arc::new(Mutex::new(mining_status));
-                            staged_mining.push(
-                            CreateBlock {
-                                mining_status: Arc::clone(&mining_status_mutex),
-                                mining_block: Arc::clone(&mining_block_mutex),
-                                mining_config: Arc::clone(&mining_config_mutex),
-                                chain_spec: chainspec.clone(),
-                            },
-                            false,
-                        );
-
+                    // TODO start mining async, just set sync mining now
+                    // tokio::spawn(async move {
+                    let mut staged_mining = StagedMining::new();
+                    consensus_config.authorize(ECDSASigner::from_secret(&opt.mine_secretkey.unwrap()[..]));
+                    let mining_config = Arc::new(Mutex::new(MiningConfig {
+                        enabled: true,
+                        ether_base: opt.mine_etherbase.unwrap().clone(),
+                        secret_key: opt.mine_secretkey.unwrap().clone(),
+                        extra_data: opt.mine_extradata.map(Bytes::from).clone(),
+                        consensus: consensus_config,
+                        dao_fork_block: Some(BigInt::new(num_bigint::Sign::Plus, vec![])),
+                        dao_fork_support: false,
+                        gas_limit: 30000000,
+                    }));
+                    info!("Mining enabled");
+                    let mining_block = Arc::new(Mutex::new(MiningBlock::default()));
+                    let mining_status = Arc::new(Mutex::new(MiningStatus::new()));
                         staged_mining.push(
-                            MiningExecBlock {
-                                mining_status: Arc::clone(&mining_status_mutex),
-                                mining_block: Arc::clone(&mining_block_mutex),
-                                mining_config: Arc::clone(&mining_config_mutex),
-                                chain_spec: chainspec.clone(),
-                            },
-                            false,
-                        );
+                        CreateBlock {
+                            mining_status: mining_status.clone(),
+                            mining_block: mining_block.clone(),
+                            mining_config: mining_config.clone(),
+                            chain_spec: chainspec.clone(),
+                            node: node.clone(),
+                        },
+                    );
 
-                        // TODO Error: Faulty cumulative index: max gas less than current gas (1395722 < 1532487), you should mining after latest block
-                        // staged_sync.push(HashState::new(etl_temp_dir.clone(), None), !opt.prune);
-                        //
-                        // staged_sync.push_with_unwind_priority(
-                        //     Interhashes::new(etl_temp_dir.clone(), None),
-                        //     !opt.prune,
-                        //     1,
-                        // );
-                        info!("createBlock stage enabled");
+                    staged_mining.push(
+                        MiningExecBlock {
+                            mining_status: mining_status.clone(),
+                            mining_block: mining_block.clone(),
+                            mining_config: mining_config.clone(),
+                            chain_spec: chainspec.clone(),
+                        },
+                    );
 
-                        staged_mining.push(
-                            MiningFinishBlock {
-                                mining_status: Arc::clone(&mining_status_mutex),
-                                mining_block: Arc::clone(&mining_block_mutex),
-                                mining_config: Arc::clone(&mining_config_mutex),
-                                chain_spec: chainspec.clone(),
-                                node: node.clone(),
-                            },
-                            false,
-                        );
-                        staged_mining.run(&mining_db).await.unwrap()
-                    });
+                    staged_mining.push(
+                        TotalGasIndex {},
+                    );
+
+                    staged_mining.push(HashState::new(etl_temp_dir.clone(), None));
+
+                    staged_mining.push(
+                        Interhashes::new(etl_temp_dir.clone(), None, Some(mining_block.clone())),
+                    );
+                    info!("createBlock stage enabled");
+
+                    staged_mining.push(
+                        MiningFinishBlock {
+                            mining_status: mining_status.clone(),
+                            mining_block: mining_block.clone(),
+                            mining_config: mining_config.clone(),
+                            chain_spec: chainspec.clone(),
+                            node: node.clone(),
+                        },
+                    );
+                    // TODO start mining async, just set sync mining
+                    // staged_mining.run(&mining_db).await.unwrap()
+                    staged_sync.enable_mining(staged_mining);
+                    // });
                 }
 
                 info!("Running staged sync");

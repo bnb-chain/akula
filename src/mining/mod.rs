@@ -54,58 +54,87 @@ where
     {
         let num_stages = self.stages.len();
 
+        let mut previous_stage = None;
+
         for (stage_index, stage) in self.stages.iter_mut().enumerate() {
             let stage_started = Instant::now();
-            let stage_id = stage.id().0;
-
-            let success = async {
-                info!("RUNNING");
-
-                let input = StageInput {
-                    restarted: false,
-                    first_started_at: (stage_started, Some(last_block)),
-                    previous_stage: None,
-                    stage_progress: Some(last_block),
-                };
+            let stage_id = stage.id();
+            let input = StageInput {
+                restarted: false,
+                first_started_at: (stage_started, Some(last_block)),
+                previous_stage,
+                stage_progress: Some(last_block),
+            };
+            let exec_output = async {
+                info!(
+                    "RUNNING from {}",
+                    input
+                        .stage_progress
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| "genesis".to_string())
+                );
 
                 let output = stage.execute(tx, input).await;
 
-                let new_block = last_block.0 + 1;
-
-                let success = matches!(
-                    &output,
-                    Ok(ExecOutput::Progress { stage_progress, .. }) if stage_progress.0 == new_block
-                );
-
-                if success {
-                    info!("DONE in {}", format_duration(stage_started.elapsed(), true));
-                } else {
-                    warn!(
-                        "Creating a block proposal for height {} failed: {}",
-                        new_block,
-                        if let Err(e) = output {
-                            format!("{:?}", e)
+                // Nothing here, pass along.
+                match &output {
+                    Ok(ExecOutput::Progress {
+                        done,
+                        stage_progress,
+                        ..
+                    }) => {
+                        if *done {
+                            info!(
+                                "DONE @ {} in {}",
+                                stage_progress,
+                                format_duration(Instant::now() - stage_started, true)
+                            );
                         } else {
-                            "".to_string()
-                        },
-                    );
+                            warn!(
+                                "Stage not done, with no reason @ {} in {}, exit...",
+                                stage_progress,
+                                format_duration(Instant::now() - stage_started, true)
+                            );
+                        }
+                    }
+                    Ok(ExecOutput::Unwind { unwind_to }) => {
+                        warn!("Stage trigger unwind to {}, exit...", unwind_to);
+                    }
+                    Err(err) => {
+                        warn!("mining err: {:?}, exit...", err);
+                    }
                 }
 
-                success
+                output
             }
             .instrument(span!(
                 Level::INFO,
                 "",
-                " {}/{} Mining {} ",
+                " {}/{} {} ",
                 stage_index + 1,
                 num_stages,
-                stage_id,
+                AsRef::<str>::as_ref(&stage_id)
             ))
             .await;
 
-            if !success {
-                break;
-            }
+            // Check how stage run went.
+            let done_progress = match exec_output {
+                Ok(ExecOutput::Progress {
+                    stage_progress,
+                    done,
+                    ..
+                }) => {
+                    // Stage is "done", that is cannot make any more progress at this time.
+                    if !done {
+                        break;
+                    }
+                    stage_progress
+                }
+                _ => {
+                    break;
+                }
+            };
+            previous_stage = Some((stage_id, done_progress))
         }
     }
 }

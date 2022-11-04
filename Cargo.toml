@@ -50,7 +50,7 @@ ethereum-types = { version = "0.14", features = ["codec"]}
 ethereum-jsonrpc = { git = "https://github.com/vorot93/ethereum-jsonrpc", features = [
   "server",
 ] }
-ethnum = { version = "1", features = ["eio", "llvm-intrinsics", "rlp"] }
+ethnum = { version = "1", features = ["eio", "rlp"] }
 ethsecp256k1 = { package = "eth-secp256k1", git = "https://github.com/paritytech/rust-secp256k1", rev = "ccc06e7480148b723eb44ac56cf4d20eec380b6f" }
 ethabi = { git = "https://github.com/setunapo/ethabi", package = "ethabi", branch = "akula_ethereum_type_v0.14.0" }
 ethabi-contract = { git = "https://github.com/setunapo/ethabi", package = "ethabi-contract", branch = "akula_ethereum_type_v0.14.0"  }

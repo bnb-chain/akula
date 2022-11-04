@@ -70,7 +70,6 @@ where
     post_cycle_callback:
         Option<Box<dyn Fn(StagedSyncStatus) -> BoxFuture<'static, ()> + Send + Sync + 'static>>,
     staged_mining: Option<StagedMining<'db, E>>,
-    pub is_mining: bool,
 }
 
 impl<'db, E> Default for StagedSync<'db, E>
@@ -99,7 +98,6 @@ where
             delay_after_sync: None,
             post_cycle_callback: None,
             staged_mining: None,
-            is_mining: false,
         }
     }
 
@@ -176,15 +174,9 @@ where
         let mut bad_block = None;
         let mut unwind_to = self.start_with_unwind;
         'run_loop: loop {
-            info!(
-                "stages len {}, is_mining {}",
-                self.stages.len(),
-                self.is_mining
-            );
             self.current_stage_sender.send(None).unwrap();
 
             let mut tx = db.begin_mutable()?;
-            info!("stages len {}, begin tx", self.stages.len());
 
             // Start with unwinding if it's been requested.
             if let Some(to) = unwind_to.take() {
@@ -252,9 +244,7 @@ where
                 }
 
                 bad_block = None;
-                if !self.is_mining {
-                    tx.commit()?;
-                }
+                tx.commit()?;
             } else {
                 // Now that we're done with unwind, let's roll.
 
@@ -425,9 +415,7 @@ where
                                 {
                                     // Commit and restart transaction.
                                     debug!("Commit requested");
-                                    if !self.is_mining {
-                                        tx.commit()?;
-                                    }
+                                    tx.commit()?;
                                     debug!("Commit complete");
                                     tx = db.begin_mutable()?;
                                 }
@@ -484,9 +472,7 @@ where
                 );
                 info!("Staged sync complete.{}", t);
 
-                if !self.is_mining {
-                    tx.commit()?;
-                }
+                tx.commit()?;
 
                 let last_block = receipts.last().map_or(BlockNumber(0), |r| r.progress);
 
@@ -497,6 +483,12 @@ where
                         stage_execution_receipts: receipts,
                     })
                     .await
+                }
+
+                // if enable mining, start it
+                if let Some(mining) = &mut self.staged_mining {
+                    let mut tx = db.begin_mutable()?;
+                    mining.run(&mut tx, last_block).await;
                 }
 
                 if let Some(minimum_progress) = minimum_progress {
@@ -512,6 +504,11 @@ where
                 }
             }
         }
+    }
+
+    /// enable mining after sync done
+    pub fn enable_mining(&mut self, staged_mining: StagedMining<'db, E>) {
+        self.staged_mining = Some(staged_mining);
     }
 }
 

@@ -67,9 +67,13 @@ pub fn create_block_header(
     parent_header: &BlockHeader,
     config: Arc<Mutex<MiningConfig>>,
 ) -> anyhow::Result<BlockHeader> {
-    let timestamp = now();
+    let mut timestamp = now();
     if timestamp <= parent_header.timestamp {
-        bail!("Current system time is earlier than existing block timestamp.");
+        // TODO add forceTime option
+        // Sanity check the timestamp correctness, recap the timestamp
+        // to parent+1 if the mutation is allowed.
+        // bail!("Current system time is earlier than existing block timestamp.");
+        timestamp = parent_header.timestamp + 1;
     }
 
     let parent_gas_limit = parent_header.gas_limit;
@@ -82,13 +86,13 @@ pub fn create_block_header(
         beneficiary: config.get_ether_base(),
         difficulty: U256::ZERO,
         extra_data: config.get_extra_data(),
-        timestamp: timestamp,
+        timestamp,
         ommers_hash: H256::zero(),
         state_root: H256::zero(),
         transactions_root: H256::zero(),
         receipts_root: H256::zero(),
         logs_bloom: ethereum_types::Bloom::zero(),
-        gas_limit: gas_limit,
+        gas_limit,
         gas_used: 0,
         mix_hash: H256::zero(),
         nonce: ethereum_types::H64::zero(),

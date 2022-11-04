@@ -109,6 +109,14 @@ impl Node {
                                 }
                             }
                             Message::BlockHeaders(ref headers) => {
+                                if headers.headers.len() > 0 {
+                                    info!(
+                                        "recv a BlockHeaders in handler {:?}:{:?}, len {}",
+                                        headers.headers[0].number,
+                                        headers.headers[0].hash(),
+                                        headers.headers.len()
+                                    );
+                                }
                                 if let Some(max_header) =
                                     headers.headers.iter().max_by_key(|header| header.number)
                                 {
@@ -140,6 +148,12 @@ impl Node {
                                 }
                             }
                             Message::NewBlock(inner) => {
+                                info!(
+                                    "recv a new block in handler {:?}:{:?}, from {}",
+                                    inner.block.header.number,
+                                    inner.block.header.hash(),
+                                    inner.block.header.beneficiary
+                                );
                                 let hash = inner.block.header.hash();
                                 let number = inner.block.header.number;
 
@@ -296,6 +310,7 @@ impl Node {
             height,
             hash,
             total_difficulty,
+            ..
         } = *self.status.read();
         let config = &self.config;
         let status_data = grpc_sentry::StatusData {
