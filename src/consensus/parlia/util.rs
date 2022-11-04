@@ -519,13 +519,22 @@ mod tests {
         );
 
         let chain_id = ChainId(56_u64);
-        let signer = ECDSASigner::from_secret(hex::decode("47ebe68bdae5faa801fd6c6d4e43d9f142cefd8fa46bb822dd32c94fbc5eaa7c").unwrap().as_slice());
+        let signer = ECDSASigner::from_secret(
+            hex::decode("47ebe68bdae5faa801fd6c6d4e43d9f142cefd8fa46bb822dd32c94fbc5eaa7c")
+                .unwrap()
+                .as_slice(),
+        );
         let sig = signer.sign_block(&header, chain_id).unwrap();
         let mut extra = BytesMut::with_capacity(header.extra_data.len());
         extra.extend_from_slice(&header.extra_data[..header.extra_data.len() - EXTRA_SEAL_LEN]);
         extra.extend_from_slice(&sig[..]);
         header.extra_data = extra.freeze();
-        info!("sealed header {}:{}, header: {:?}", header.number.0, header.hash(), header);
+        info!(
+            "sealed header {}:{}, header: {:?}",
+            header.number.0,
+            header.hash(),
+            header
+        );
 
         let addr = recover_creator(&header, chain_id).unwrap();
         assert_eq!(
@@ -570,6 +579,7 @@ mod tests {
             balances: Default::default(),
             p2p: P2PParams {
                 bootnodes: vec![],
+                static_peers: vec![],
                 dns: None,
             },
         };

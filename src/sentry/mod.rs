@@ -515,11 +515,20 @@ pub async fn run(
         discovery_tasks.insert("discv4".to_string(), Box::pin(task));
     }
 
-    if !opts.static_peers.is_empty() {
-        info!("Enabling static peers: {:?}", opts.static_peers);
+    let static_peers = if opts.static_peers.is_empty() {
+        network_params
+            .static_peers
+            .iter()
+            .map(|b| NR(b.parse().unwrap()))
+            .collect::<Vec<_>>()
+    } else {
+        opts.static_peers
+    };
+    if !static_peers.is_empty() {
+        info!("Enabling static peers: {:?}", static_peers);
 
         let task = StaticNodes::new(
-            opts.static_peers
+            static_peers
                 .iter()
                 .map(|&NR(NodeRecord { addr, id })| (addr, id))
                 .collect::<HashMap<_, _>>(),

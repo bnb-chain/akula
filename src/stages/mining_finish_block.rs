@@ -113,28 +113,13 @@ where
             warn!("mining finish send pending_result_ch err: {:?}", err);
         }
 
-        let success = self
+        let _success = self
             .mining_config
             .lock()
             .unwrap()
             .consensus
-            .seal(tx, &mut block)?;
+            .seal(self.node.clone(), tx, block)?;
 
-        if success {
-            // TODO set correct TD
-            let td = block.header.difficulty;
-            // Broadcast the mined block to other p2p nodes.
-            let sent_request_id = rand::thread_rng().gen();
-            // TODO add mined block into stageSync
-            info!("send_new_mining_block to others, block: {:?}", block);
-            self.node
-                .send_new_mining_block(
-                    sent_request_id,
-                    block,
-                    td,
-                )
-                .await;
-        }
         Ok(ExecOutput::Progress {
             stage_progress: prev_stage,
             done: true,

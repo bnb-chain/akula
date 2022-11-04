@@ -9,6 +9,7 @@ use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
 use tokio::sync::{watch, Notify};
 use tonic::transport::Channel;
+use tracing::info;
 
 #[derive(Debug)]
 pub struct NodeBuilder {
@@ -30,17 +31,20 @@ impl NodeBuilder {
     }
 
     pub fn add_sentry(mut self, endpoint: impl Into<Uri>) -> Self {
-        self.sentries.push(Sentry::new(
-            Channel::builder(endpoint.into()).connect_lazy(),
-        ));
+        let uri = endpoint.into();
+        info!("add_sentry endpoint {:?}", uri);
+        self.sentries
+            .push(Sentry::new(Channel::builder(uri).connect_lazy()));
         self
     }
 
-    pub fn set_chain_head(mut self, height: BlockNumber, hash: H256, td: U256) -> Self {
+    pub fn set_chain_head(mut self, height: BlockNumber, hash: H256, parent_hash: H256, td: U256) -> Self {
         let status = Status {
             height,
             hash,
             total_difficulty: H256::from(td.to_be_bytes()),
+            parent_hash,
+            td
         };
         self.status = Some(status);
         self

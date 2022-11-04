@@ -37,11 +37,13 @@ use milagro_bls::{AggregateSignature, PublicKey};
 use parking_lot::RwLock;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
-    time::{Duration, SystemTime},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
+use std::ops::{Add, Sub};
 use tokio::sync::watch::Receiver as WatchReceiver;
 use tracing::*;
 use TransactionAction;
+use rand::prelude::*;
 
 pub const EXTRA_VANITY: usize = 32;
 /// Fixed number of extra-data prefix bytes reserved for signer vanity
@@ -84,6 +86,10 @@ const INIT_TX_NUM: usize = 7;
 const BACKOFF_TIME_OF_INITIAL: u64 = 1_u64;
 /// Random additional delay (per signer) to allow concurrent signers, second
 const BACKOFF_TIME_OF_WIGGLE: u64 = 1_u64;
+/// Default delay (per signer) to allow concurrent signers before ramanujan fork, millisecond
+const BACKOFF_MILL_TIME_OF_FIXED_BEFORE_FORK: u64 = 200_u64;
+/// Random additional delay (per signer) to allow concurrent signers before ramanujan fork, millisecond
+const BACKOFF_MILL_TIME_OF_WIGGLE_BEFORE_FORK: u64 = 500_u64;
 /// process delay (per signer) to allow concurrent signers, second
 const BACKOFF_TIME_OF_PROCESS: u64 = 1_u64;
 /// Maximum the gas limit may ever be.
@@ -580,6 +586,49 @@ impl Parlia {
             }
         }
         Ok(())
+    }
+
+    fn block_time_for_ramanujan_fork(
+        &self,
+        snap: &Snapshot,
+        header: &BlockHeader,
+        parent: &BlockHeader,
+    ) -> u64 {
+        let mut block_timestamp = parent.timestamp + self.period;
+        if self.chain_spec.is_ramanujan(&header.number) {
+            block_timestamp += self.back_off_time(snap, &header);
+        }
+        block_timestamp
+    }
+
+    fn delay_for_Ramanujan_fork(
+        &self,
+        snap: &Snapshot,
+        header: &BlockHeader
+    ) -> Duration {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+        let mut delay = Duration::from_secs(header.timestamp).checked_sub(now);
+        match delay {
+            Some(delay) => {
+                info!("delay_for_Ramanujan_fork now {:?}, header.timestamp {}, delay {:?}", now, header.timestamp, delay);
+                if self.chain_spec.is_ramanujan(&header.number) {
+                    return delay;
+                }
+
+                if header.difficulty == DIFF_NOTURN {
+                    // It's not our turn explicitly to sign, delay it a bit
+                    let wiggle = ((snap.validators.len() / 2 + 1) as u64) * BACKOFF_MILL_TIME_OF_WIGGLE_BEFORE_FORK;
+                    let mut rng = RngSource::new(1);
+                    delay.add(Duration::from_millis(BACKOFF_MILL_TIME_OF_FIXED_BEFORE_FORK + (rng.int63n(wiggle as i64)) as u64));
+                }
+
+                delay
+            }
+            None => {
+                Duration::from_millis(1)
+            }
+        }
+
     }
 
     fn back_off_time(&self, snap: &Snapshot, header: &BlockHeader) -> u64 {
@@ -1166,11 +1215,19 @@ impl Consensus for Parlia {
         // Mix digest is reserved for now, set to empty
         header.mix_hash = H256::zero();
 
-        // TODO Ensure the timestamp has the correct delay
-        // header.Time = self.blockTimeForRamanujanFork(snap, header, parent);
-        // if header.Time < uint64(time.Now().Unix()) {
-        //     header.Time = uint64(time.Now().Unix())
-        // }
+        let parent =
+            header_reader
+                .read_parent_header(header)?
+                .ok_or(ParliaError::UnknownHeader {
+                    number: header.number.parent(),
+                    hash: header.parent_hash,
+                })?;
+        // Ensure the timestamp has the correct delay
+        header.timestamp = self.block_time_for_ramanujan_fork(&snap, header, &parent);
+        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+        if header.timestamp < now {
+            header.timestamp = now
+        }
 
         Ok(())
     }
@@ -1277,8 +1334,9 @@ impl Consensus for Parlia {
 
     fn seal(
         &mut self,
+        node: Arc<Node>,
         header_reader: &dyn HeaderReader,
-        block: &mut Block,
+        mut block: Block,
     ) -> anyhow::Result<bool, DuoError> {
         let header = &block.header;
         let block_number = header.number;
@@ -1313,10 +1371,10 @@ impl Consensus for Parlia {
         }
 
         // if we're amongst the recent signers, wait for the next block
-        for (last, val) in snap.recent_proposers {
-            if proposer == val {
+        for (last, val) in &snap.recent_proposers {
+            if proposer == *val {
                 let limit = (snap.validators.len() / 2 + 1) as u64;
-                if block_number.0 < limit || last > block_number.0 - limit {
+                if block_number.0 < limit || *last > block_number.0 - limit {
                     info!(
                         "signed recently, must wait for others, block {:?}:{:?}",
                         block_number, block_hash
@@ -1326,11 +1384,10 @@ impl Consensus for Parlia {
             }
         }
 
-        // TODO Sweet, the protocol permits us to sign the block, wait for our time
-        // let delay = self.delayForRamanujanFork(snap, header);
-        let delay = 1_u64;
+        // Sweet, the protocol permits us to sign the block, wait for our time
+        let delay = self.delay_for_Ramanujan_fork(&snap, header);
 
-        info!("consensus seal the block {:?}:{:?}, proposer: {:?}, delay: {}, difficulty: {}, gasUsed: {}, txsRoot: {:?}, stateRoot: {:?}",
+        info!("consensus seal the block {:?}:{:?}, proposer: {:?}, delay: {:?}, difficulty: {}, gasUsed: {}, txsRoot: {:?}, stateRoot: {:?}",
             block_number, block_hash, proposer, delay, header.difficulty, header.gas_used, header.transactions_root, header.state_root
         );
 
@@ -1344,23 +1401,24 @@ impl Consensus for Parlia {
         tmp.extend_from_slice(&sig[..]);
         block.header.extra_data = tmp.freeze();
 
-        //TODO tmp sync delay
-        thread::sleep(Duration::from_secs(delay));
-
-        // TODO add wait block process
-        // if self.shouldWaitForCurrentBlockProcess(header_reader, header, snap) {
-        //     info!(
-        //         "waiting for received in turn block to process, block {:?}:{:?}",
-        //         block_number, block_hash
-        //     );
-        //
-        //     //TODO tmp sync delay
-        //     thread::sleep(Duration::from_secs(BACKOFF_TIME_OF_PROCESS));
-        //     info!(
-        //         "process backoff time exhausted, start to seal block, block {:?}:{:?}",
-        //         block_number, block_hash
-        //     );
-        // }
+        // Wait until sealing is terminated or delay timeout.
+        tokio::spawn(async move {
+            let header = &block.header;
+            info!("waiting to propagate, delay {:?}", delay);
+            tokio::time::sleep(delay).await;
+            if should_wait_current_block_process(node.clone(), header) {
+                info!("waiting for received in turn block to process, block {:?}:{:?}", block_number, block_hash);
+                tokio::time::sleep(Duration::from_secs(BACKOFF_TIME_OF_PROCESS)).await;
+            }
+            // TODO set correct TD
+            let td = node.status.read().td + header.difficulty;
+            // Broadcast the mined block to other p2p nodes.
+            let sent_request_id = rand::thread_rng().gen();
+            // TODO add mined block into stageSync
+            info!("finally, we could send_new_mining_block to others, block: {:?}:{:?}, {:?}", block_number, block_hash, block);
+            node.send_new_mining_block(sent_request_id, block, td)
+                .await;
+        });
         Ok(true)
     }
 
@@ -1739,4 +1797,17 @@ fn calculate_difficulty(snap: &Snapshot, signer: &Address) -> U256 {
         return DIFF_INTURN;
     }
     DIFF_NOTURN
+}
+
+fn should_wait_current_block_process(node: Arc<Node>, header: &BlockHeader) -> bool {
+    if header.difficulty == DIFF_INTURN {
+        return false;
+    }
+
+    let status = node.status.read();
+    if status.parent_hash == header.parent_hash {
+        return true;
+    }
+
+    false
 }
