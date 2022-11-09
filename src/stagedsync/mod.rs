@@ -69,7 +69,7 @@ where
     exit_after_sync: bool,
     delay_after_sync: Option<Duration>,
     post_cycle_callback:
-        Option<Box<dyn Fn(StagedSyncStatus) -> BoxFuture<'static, ()> + Send + 'static>>,
+        Option<Box<dyn Fn(StagedSyncStatus) -> BoxFuture<'static, ()> + Send + Sync + 'static>>,
     staged_mining: Option<StagedMining<'db, E>>,
     pub is_mining: bool,
 }
@@ -153,7 +153,7 @@ where
 
     pub fn set_post_cycle_callback(
         &mut self,
-        f: impl Fn(StagedSyncStatus) -> BoxFuture<'static, ()> + Send + 'static,
+        f: impl Fn(StagedSyncStatus) -> BoxFuture<'static, ()> + Send + Sync + 'static,
     ) -> &mut Self {
         self.post_cycle_callback = Some(Box::new(f));
         self
@@ -183,9 +183,15 @@ where
         let mut bad_block = None;
         let mut unwind_to = self.start_with_unwind;
         'run_loop: loop {
+            info!(
+                "stages len {}, is_mining {}",
+                self.stages.len(),
+                self.is_mining
+            );
             self.current_stage_sender.send(None).unwrap();
 
             let mut tx = db.begin_mutable()?;
+            info!("stages len {}, begin tx", self.stages.len());
 
             // Start with unwinding if it's been requested.
             if let Some(to) = unwind_to.take() {
