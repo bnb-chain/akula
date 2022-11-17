@@ -1,26 +1,20 @@
 use super::*;
 use crate::{
     consensus::{DuoError, PoSA},
-    kv::{
-        mdbx::{MdbxEnvironment, MdbxTransaction},
-        MdbxWithDirHandle,
-    },
+    kv::MdbxWithDirHandle,
     models::{BLSPrivateKey, BlockHeader, ChainSpec},
     p2p::{
         node::Node,
-        types::{InboundMessage, Message, Message::Votes, Status},
+        types::{Message::Votes, Status},
     },
     HeaderReader, StageId,
 };
-use futures::{future::err, StreamExt};
-use mdbx::{EnvironmentKind, WriteMap, RW};
+use futures::StreamExt;
+use mdbx::WriteMap;
 use parking_lot::Mutex;
-use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    task::ready,
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
 };
 use tokio::sync::watch::Receiver as WatchReceiver;
 use tracing::*;
@@ -101,7 +95,7 @@ impl VoteManager {
         let tx = self.db.begin()?;
         let mut stream = self.node.stream_votes().await;
         let msg = stream.next().await.ok_or(ParliaVoteError::CannotFetchMsg)?;
-        if let Votes(votes) = msg.msg.clone() {
+        if let Votes(votes) = msg.msg {
             for v in votes.votes {
                 if let Err(err) = self.pool.lock().push_vote(&tx, v) {
                     warn!("handle_new_vote_loop push vote err: {:?}", err);

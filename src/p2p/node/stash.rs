@@ -5,7 +5,6 @@ use crate::{
     p2p::types::{BlockId, GetBlockHeadersParams},
 };
 use anyhow::format_err;
-use arrayvec::ArrayVec;
 use mdbx::EnvironmentKind;
 use std::fmt::Debug;
 
@@ -97,9 +96,9 @@ where
         let header = txn.get(tables::Header, number)?.unwrap();
         let body = chain::block_body::read_without_senders(&txn, number)?.unwrap();
 
-        let partial_header = PartialHeader::from(header.clone());
+        let partial_header = PartialHeader::from(header);
 
-        let block = Block::new(partial_header.clone(), body.transactions, body.ommers);
+        let block = Block::new(partial_header, body.transactions, body.ommers);
         Ok(block)
     }
 }

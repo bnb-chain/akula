@@ -523,10 +523,10 @@ fn tendermint_header_verify_run(input: Bytes) -> Option<Bytes> {
         hex::encode(input.as_ref()),
         hex::encode(&output)
     );
-    return match res {
+    match res {
         Ok(()) => Some(Bytes::from(output)),
         Err(_) => None,
-    };
+    }
 }
 
 fn iavl_proof_verify_gas(_: Bytes, _: Revision) -> Option<u64> {
@@ -537,10 +537,10 @@ fn iavl_proof_verify_run(input: Bytes) -> Option<Bytes> {
     let mut output = [0u8; 32];
     let mut bytes = BytesRef::Fixed(&mut output);
     let res = iavl_proof::execute(input.as_ref(), &mut bytes);
-    return match res {
+    match res {
         Ok(()) => Some(Bytes::copy_from_slice(&output[..])),
         Err(_) => None,
-    };
+    }
 }
 
 fn vote_signature_verify_gas(_: Bytes, _: Revision) -> Option<u64> {

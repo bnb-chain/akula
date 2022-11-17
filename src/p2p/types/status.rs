@@ -16,7 +16,7 @@ impl Status {
             hash,
             parent_hash,
             total_difficulty: H256::from(td.to_be_bytes()),
-            td
+            td,
         }
     }
 }

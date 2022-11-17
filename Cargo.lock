@@ -1527,8 +1527,8 @@ dependencies = [
 
 [[package]]
 name = "ethabi"
-version = "17.2.0"
-source = "git+https://github.com/setunapo/ethabi?branch=akula_ethereum_type_v0.14.0#54a6240f72d7f939d34bedc1e35d2714887f966f"
+version = "18.0.0"
+source = "git+https://github.com/rust-ethereum/ethabi?tag=v18.0.0#beb208bf24df9c3d7639fa661e6a1ac87dee7886"
 dependencies = [
  "ethereum-types 0.14.0",
  "hex 0.4.3",
@@ -1543,13 +1543,13 @@ dependencies = [
 
 [[package]]
 name = "ethabi-contract"
-version = "17.2.0"
-source = "git+https://github.com/setunapo/ethabi?branch=akula_ethereum_type_v0.14.0#54a6240f72d7f939d34bedc1e35d2714887f966f"
+version = "18.0.0"
+source = "git+https://github.com/rust-ethereum/ethabi?tag=v18.0.0#beb208bf24df9c3d7639fa661e6a1ac87dee7886"
 
 [[package]]
 name = "ethabi-derive"
-version = "17.2.0"
-source = "git+https://github.com/setunapo/ethabi?branch=akula_ethereum_type_v0.14.0#54a6240f72d7f939d34bedc1e35d2714887f966f"
+version = "18.0.0"
+source = "git+https://github.com/rust-ethereum/ethabi?tag=v18.0.0#beb208bf24df9c3d7639fa661e6a1ac87dee7886"
 dependencies = [
  "ethabi",
  "heck",

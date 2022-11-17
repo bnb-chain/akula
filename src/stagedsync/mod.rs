@@ -2,22 +2,9 @@ pub mod stage;
 pub mod util;
 
 use self::stage::{Stage, StageInput, UnwindInput};
-use crate::{
-    kv::mdbx::*,
-    mining::{state::MiningConfig, StagedMining},
-    models::*,
-    stagedsync::stage::*,
-    stages::*,
-    StageId,
-};
-use bytes::Bytes;
+use crate::{kv::mdbx::*, mining::StagedMining, models::*, stagedsync::stage::*, StageId};
 use futures::future::BoxFuture;
-use std::{
-    cell::RefCell,
-    rc::Rc,
-    sync::{Arc, Mutex},
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 use tokio::sync::watch::{Receiver as WatchReceiver, Sender as WatchSender};
 use tracing::*;
 struct QueuedStage<'db, E>

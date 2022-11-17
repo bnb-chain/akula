@@ -140,7 +140,7 @@ where
     );
 
     if parlia_engine && is_system_transaction(message, &sender, &beneficiary) {
-        g0 = 0 as u128;
+        g0 = 0_u128;
     }
     let gas = u128::from(message.gas_limit())
         .checked_sub(g0)
@@ -531,13 +531,9 @@ where
         Ok(receipts)
     }
 
-    pub fn execute_and_write_block_no_check(
+    pub fn execute_and_write_block_for_mining(
         mut self,
     ) -> Result<(Option<Vec<MessageWithSender>>, Vec<Receipt>), DuoError> {
-        self.engine.new_block(
-            self.header,
-            ConsensusNewBlockState::handle(self.chain_spec, self.header, &mut self.state)?,
-        )?;
         let res = self.execute_block_no_post_validation(true)?;
 
         self.state.write_to_state(self.header.number)?;

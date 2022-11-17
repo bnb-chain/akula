@@ -8,12 +8,9 @@ use ethereum_types::Address;
 use ethnum::U256;
 use primitive_types::H256;
 use std::{
-    cell::RefCell,
-    rc::Rc,
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
-use tendermint::serializers::timestamp;
 
 // The bound divisor of the gas limit, used in update calculations.
 pub const GASLIMITBOUNDDIVISOR: u64 = 1024;
@@ -121,5 +118,5 @@ pub fn calc_gas_limit(parent_gas_limit: u64, desired_limit: u64) -> u64 {
             limit = desired_limit;
         }
     }
-    return limit;
+    limit
 }

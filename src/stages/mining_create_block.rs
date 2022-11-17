@@ -1,12 +1,9 @@
-use std::{cell::RefCell, cmp::Ordering};
+use std::cmp::Ordering;
 
 use crate::{
     consensus::*,
     kv::{mdbx::MdbxTransaction, tables},
-    mining::{
-        proposal::{create_block_header, create_proposal},
-        state::*,
-    },
+    mining::{proposal::create_block_header, state::*},
     models::*,
     p2p::node::Node,
     stagedsync::stage::*,
@@ -16,18 +13,11 @@ use crate::{
 use anyhow::bail;
 use arrayvec::ArrayVec;
 use async_trait::async_trait;
-use bytes::Bytes;
-use cipher::typenum::int;
-use hex::FromHex;
 use mdbx::{EnvironmentKind, RW};
-use num_bigint::{BigInt, Sign};
+use num_bigint::BigInt;
 use num_traits::ToPrimitive;
-use std::{
-    rc::Rc,
-    sync::{mpsc, Arc, Mutex},
-};
-use tokio::io::copy;
-use tracing::{debug, info};
+use std::sync::{mpsc, Arc, Mutex};
+use tracing::*;
 
 pub const CREATE_BLOCK: StageId = StageId("CreateBlock");
 // DAOForkExtraRange is the number of consecutive blocks from the DAO fork point
@@ -48,6 +38,11 @@ impl MiningStatus {
             mining_result_ch: mpsc::channel().0,
             mining_result_pos_ch: mpsc::channel().0,
         }
+    }
+}
+impl Default for MiningStatus {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -87,12 +82,19 @@ where
         let buffer = Buffer::new(tx, None);
         if self.chain_spec.consensus.is_parlia() {
             let mut config = self.mining_config.lock().unwrap();
+            config
+                .consensus
+                .snapshot(tx, tx, proposal.number.parent(), proposal.parent_hash)?;
+            config.consensus.new_block(
+                &proposal,
+                ConsensusNewBlockState::handle_with_txn(&self.chain_spec, &proposal, tx)?,
+            )?;
             config.consensus.prepare(&buffer, &mut proposal)?;
 
             // If we are care about TheDAO hard-fork check whether to override the extra-data or not
             if let Some(dao_block) = &config.dao_fork_block {
                 // Check whether the block is among the fork extra-override range
-                let limit = BigInt::checked_add(&dao_block, &BigInt::from(DAOFORKEXTRARANG));
+                let limit = BigInt::checked_add(dao_block, &BigInt::from(DAOFORKEXTRARANG));
                 if proposal.number.0.cmp(&DAOFORKEXTRARANG.to_u64().unwrap()) >= Ordering::Equal
                     && proposal.number.0.cmp(&limit.unwrap().to_u64().unwrap()) == Ordering::Less
                 {

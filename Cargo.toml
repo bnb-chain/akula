@@ -52,9 +52,9 @@ ethereum-jsonrpc = { git = "https://github.com/vorot93/ethereum-jsonrpc", featur
 ] }
 ethnum = { version = "1", features = ["eio", "rlp"] }
 ethsecp256k1 = { package = "eth-secp256k1", git = "https://github.com/paritytech/rust-secp256k1", rev = "ccc06e7480148b723eb44ac56cf4d20eec380b6f" }
-ethabi = { git = "https://github.com/setunapo/ethabi", package = "ethabi", branch = "akula_ethereum_type_v0.14.0" }
-ethabi-contract = { git = "https://github.com/setunapo/ethabi", package = "ethabi-contract", branch = "akula_ethereum_type_v0.14.0"  }
-ethabi-derive = { git = "https://github.com/setunapo/ethabi", package = "ethabi-derive", branch = "akula_ethereum_type_v0.14.0"  }
+ethabi = { git = "https://github.com/rust-ethereum/ethabi", tag = "v18.0.0", package = "ethabi" }
+ethabi-contract = { git = "https://github.com/rust-ethereum/ethabi", tag = "v18.0.0", package = "ethabi-contract" }
+ethabi-derive = { git = "https://github.com/rust-ethereum/ethabi", tag = "v18.0.0", package = "ethabi-derive" }
 fastrlp = { version = "0.2", features = [
   "derive",
   "ethbloom",

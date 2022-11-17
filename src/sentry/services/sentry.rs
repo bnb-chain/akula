@@ -99,6 +99,12 @@ impl SentryService {
             .into_iter()
             .map(|(tx, peer)| {
                 let message = message.clone();
+                match &message {
+                    OutboundEvent::Disconnect { .. } => {}
+                    OutboundEvent::Message { message, .. } => {
+                        info!("send msg to peer {:?}, id {}", peer, message.id);
+                    }
+                }
                 tokio::spawn(async move { tx.send(message.clone()).await.map(|_| peer.into()) })
             })
             .collect::<FuturesUnordered<_>>()

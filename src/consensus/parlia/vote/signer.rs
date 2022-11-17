@@ -3,7 +3,7 @@ use crate::{
     consensus::DuoError,
     models::{BLSPrivateKey, BLSPublicKey, BLSSignature},
 };
-use milagro_bls::{AmclError, PublicKey, SecretKey, Signature};
+use milagro_bls::{PublicKey, SecretKey, Signature};
 
 #[derive(Clone, Debug)]
 pub struct VoteSigner {

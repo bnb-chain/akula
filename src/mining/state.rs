@@ -1,13 +1,10 @@
-use crate::{consensus::Consensus, models::*, stages::*};
+use crate::{consensus::Consensus, models::*};
 use bytes::Bytes;
 use ethereum_types::Address;
 use num_bigint::BigInt;
 use primitive_types::H256;
 use secp256k1::SecretKey;
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    mpsc, Arc,
-};
+use std::sync::mpsc;
 
 fn default_extra_data() -> Bytes {
     // TODO replace by version string once we have versioned releases

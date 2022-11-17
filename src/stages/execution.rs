@@ -13,17 +13,13 @@ use crate::{
         mdbx::*,
         tables::{self, CallTraceSetEntry},
     },
-    mining::state::*,
     models::*,
     stagedsync::{format_duration, stage::*, util::*},
-    upsert_storage_value, Buffer, HeaderReader, StageId,
+    upsert_storage_value, Buffer, StageId,
 };
 use anyhow::format_err;
 use async_trait::async_trait;
-use std::{
-    sync::{Arc, Mutex},
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 use tracing::*;
 
 pub const EXECUTION: StageId = StageId("Execution");

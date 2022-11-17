@@ -1,5 +1,5 @@
 use crate::{consensus::*, crypto};
-use bytes::{Buf, Bytes};
+use bytes::Bytes;
 use ethereum_types::{Address, Public, H256};
 use lazy_static::lazy_static;
 use lru_cache::LruCache;
@@ -68,7 +68,7 @@ pub fn parse_epoch_validators(bytes: &[u8]) -> Result<Vec<Address>, DuoError> {
         return Err(ParliaError::WrongHeaderExtraSignersLen {
             expected: 0,
             got: bytes.len() % ADDRESS_LENGTH,
-            msg: format!("parse_epoch_validators got wrong len!"),
+            msg: "parse_epoch_validators got wrong len!".to_string(),
         }
         .into());
     }
@@ -113,22 +113,17 @@ pub fn recover_creator(header: &BlockHeader, chain_id: ChainId) -> Result<Addres
     let address_slice = &Keccak256::digest(&public.serialize_uncompressed()[1..])[12..];
 
     let creator = Address::from_slice(address_slice);
-    cache.insert(header.hash(), creator.clone());
+    cache.insert(header.hash(), creator);
     Ok(creator)
 }
 
 /// check tx is similar
 pub fn is_similar_tx(actual: &Message, expect: &Message) -> bool {
-    if actual.max_fee_per_gas() == expect.max_fee_per_gas()
+    actual.max_fee_per_gas() == expect.max_fee_per_gas()
         && actual.max_fee_per_gas() == expect.max_fee_per_gas()
         && actual.value() == expect.value()
         && actual.input() == expect.input()
         && actual.action() == expect.action()
-    {
-        true
-    } else {
-        false
-    }
 }
 
 /// find header.block_number - count, block header
