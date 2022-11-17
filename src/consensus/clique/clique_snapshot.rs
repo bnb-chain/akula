@@ -1,7 +1,6 @@
 use crate::{
     consensus::{clique::*, SnapDB},
-    kv::{mdbx::*, tables, MdbxWithDirHandle},
-    p2p::types::GetBlockHeadersParams,
+    kv::{mdbx::*, tables},
     HeaderReader,
 };
 use ethereum_types::Address;
@@ -74,8 +73,7 @@ impl CliqueSnapshot {
         if snap
             .recent_proposers
             .iter()
-            .find(|(_, addr)| **addr == proposer)
-            .is_some()
+            .any(|(_, addr)| *addr == proposer)
         {
             return Err(CliqueError::SignerOverLimit { signer: proposer }.into());
         }

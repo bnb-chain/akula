@@ -1,42 +1,27 @@
 use super::*;
 use crate::{
-    accessors,
     consensus::{parlia::contract_upgrade, *},
-    execution::{
-        analysis_cache::AnalysisCache,
-        processor::ExecutionProcessor,
-        tracer::{CallTracer, CallTracerFlags},
-    },
-    kv::{mdbx::MdbxTransaction, tables, tables::*},
-    mining::{
-        proposal::{create_block_header, create_proposal},
-        state::*,
-    },
+    execution::{analysis_cache::AnalysisCache, processor::ExecutionProcessor, tracer::CallTracer},
+    kv::{mdbx::MdbxTransaction, tables},
+    mining::state::*,
     models::{
         BlockBodyWithSenders, BlockHeader, BlockNumber, Bloom, ChainSpec, MessageWithSender,
         MessageWithSignature,
     },
-    res::chainspec,
     stagedsync::stage::*,
     state::IntraBlockState,
     trie::root_hash,
     Buffer, StageId,
 };
-use anyhow::{bail, format_err};
+use anyhow::bail;
 use async_trait::async_trait;
-use cipher::typenum::int;
-use hex::FromHex;
 use mdbx::{EnvironmentKind, RW};
-use num_bigint::{BigInt, Sign};
 use num_traits::ToPrimitive;
-use primitive_types::H256;
 use std::{
-    cmp::Ordering,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::Instant,
 };
-use tokio::io::copy;
-use tracing::{debug, info, warn};
+use tracing::*;
 
 pub const STAGE_EXEC_BLOCK: StageId = StageId("StageExecBlock");
 // DAOForkExtraRange is the number of consecutive blocks from the DAO fork point
@@ -128,7 +113,7 @@ fn execute_mining_blocks<E: EnvironmentKind>(
     chain_config: ChainSpec,
     mining_config: Arc<Mutex<MiningConfig>>,
     mining_block: Arc<Mutex<MiningBlock>>,
-    first_started_at: (Instant, Option<BlockNumber>),
+    _first_started_at: (Instant, Option<BlockNumber>),
 ) -> Result<BlockNumber, StageError> {
     let mut current = mining_block.lock().unwrap();
     let header = &current.header;
@@ -136,13 +121,10 @@ fn execute_mining_blocks<E: EnvironmentKind>(
     let block_number = header.number;
 
     let mut mining_config = mining_config.lock().unwrap();
-    let mut engine = mining_config.consensus.as_mut();
+    let engine = mining_config.consensus.as_mut();
 
     if !engine.is_state_valid(header) {
         engine.set_state(ConsensusState::recover(tx, &chain_config, block_number)?);
-    }
-    if chain_config.consensus.is_parlia() {
-        engine.snapshot(tx, tx, block_number.parent(), current.header.parent_hash)?;
     }
 
     let mut buffer = Buffer::new(tx, None);
@@ -176,7 +158,7 @@ fn execute_mining_blocks<E: EnvironmentKind>(
         &block_spec,
         &chain_config,
     )
-    .execute_and_write_block_no_check()
+    .execute_and_write_block_for_mining()
     .map_err(|e| match e {
         DuoError::Validation(error) => StageError::Validation {
             block: block_number,
@@ -207,7 +189,7 @@ fn execute_mining_blocks<E: EnvironmentKind>(
     buffer.write_to_db().unwrap();
 
     // replace mining block txs
-    for t in more_txs.unwrap_or(Vec::new()) {
+    for t in more_txs.unwrap_or_default() {
         current.transactions.push(MessageWithSignature {
             message: t.message,
             signature: t.signature,

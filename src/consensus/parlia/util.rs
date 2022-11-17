@@ -10,7 +10,7 @@ use secp256k1::{
     Message as SecpMessage, SECP256K1,
 };
 use sha3::{Digest, Keccak256};
-use std::{collections::HashSet, str::FromStr};
+use std::str::FromStr;
 
 /// How many cache with recovered signatures.
 const RECOVERED_CREATOR_CACHE_NUM: usize = 4096;
@@ -74,7 +74,7 @@ pub fn parse_epoch_validators(bytes: &[u8]) -> Result<Vec<Address>, DuoError> {
         return Err(ParliaError::WrongHeaderExtraSignersLen {
             expected: 0,
             got: bytes.len() % EXTRA_VALIDATOR_LEN,
-            msg: format!("signers bytes len not correct!"),
+            msg: "signers bytes len not correct!".to_string(),
         }
         .into());
     }
@@ -106,8 +106,9 @@ pub fn recover_creator(header: &BlockHeader, chain_id: ChainId) -> Result<Addres
     }
     let signature_offset = header.extra_data.len() - EXTRA_SEAL_LEN;
 
-    let sig = &header.extra_data[signature_offset..signature_offset + 64];
-    let rec = RecoveryId::from_i32(header.extra_data[signature_offset + 64] as i32)?;
+    let sig = &header.extra_data[signature_offset..signature_offset + EXTRA_SEAL_LEN - 1];
+    let rec =
+        RecoveryId::from_i32(header.extra_data[signature_offset + EXTRA_SEAL_LEN - 1] as i32)?;
     let signature = RecoverableSignature::from_compact(sig, rec)?;
 
     let mut sig_hash_header = header.clone();
@@ -120,7 +121,7 @@ pub fn recover_creator(header: &BlockHeader, chain_id: ChainId) -> Result<Addres
     let address_slice = &Keccak256::digest(&public.serialize_uncompressed()[1..])[12..];
 
     let creator = Address::from_slice(address_slice);
-    cache.insert(header.hash(), creator.clone());
+    cache.insert(header.hash(), creator);
     Ok(creator)
 }
 
@@ -167,7 +168,7 @@ pub fn verify_extra_len(
             return Err(ParliaError::WrongHeaderExtraSignersLen {
                 expected: EXTRA_VANITY_LEN + EXTRA_SEAL_LEN + EXTRA_VALIDATOR_LEN,
                 got: extra_len,
-                msg: format!("signers empty in epoch change before boneh!"),
+                msg: "signers empty in epoch change before boneh!".to_string(),
             }
             .into());
         }
@@ -175,7 +176,7 @@ pub fn verify_extra_len(
             return Err(ParliaError::WrongHeaderExtraSignersLen {
                 expected: EXTRA_VANITY_LEN + EXTRA_SEAL_LEN,
                 got: extra_len,
-                msg: format!("signers not correct in epoch change before boneh!"),
+                msg: "signers not correct in epoch change before boneh!".to_string(),
             }
             .into());
         }
@@ -225,7 +226,7 @@ pub fn get_validator_bytes_from_header<'a, 'b>(
     if header.number.0 % epoch != 0 {
         return Err(ParliaError::NotInEpoch {
             block: header.number,
-            err: format!("get_validator_bytes_from_header but not in epoch block!"),
+            err: "get_validator_bytes_from_header but not in epoch block!".to_string(),
         }
         .into());
     }
@@ -239,7 +240,7 @@ pub fn get_validator_bytes_from_header<'a, 'b>(
     let start = EXTRA_VANITY_LEN_WITH_NUM_IN_BONEH;
     let end = start + count * EXTRA_VALIDATOR_LEN_IN_BONEH;
 
-    return Ok(&header.extra_data[start..end]);
+    Ok(&header.extra_data[start..end])
 }
 
 /// get_validator_len_from_header returns the validators len
@@ -261,7 +262,7 @@ pub fn get_validator_len_from_header(
 
     // after boneh, when epoch header.extra_data[EXTRA_VANITY_LEN_WITH_NUM_IN_BONEH - 1] is validator size.
     let count = header.extra_data[EXTRA_VANITY_LEN_WITH_NUM_IN_BONEH - 1] as usize;
-    return Ok(count * EXTRA_VALIDATOR_LEN_IN_BONEH);
+    Ok(count * EXTRA_VALIDATOR_LEN_IN_BONEH)
 }
 
 pub fn parse_validators_from_header(
@@ -303,7 +304,7 @@ pub fn parse_validators_from_header(
         );
     }
 
-    return Ok((vals, Some(val_info_map)));
+    Ok((vals, Some(val_info_map)))
 }
 
 /// get_vote_attestation returns the vote attestation from the header's extra field
@@ -324,7 +325,7 @@ pub fn get_vote_attestation_from_header(
         let end = extra_len - EXTRA_SEAL_LEN;
         raw = &header.extra_data[start..end];
     }
-    if raw.len() == 0 {
+    if raw.is_empty() {
         return Ok(None);
     }
 
@@ -524,12 +525,15 @@ mod tests {
                 .unwrap()
                 .as_slice(),
         );
-        let sig = signer.sign_block(&header, chain_id).unwrap();
+        let mut sig_hash_header = header.clone();
+        sig_hash_header.extra_data =
+            Bytes::copy_from_slice(&header.extra_data[..header.extra_data.len() - EXTRA_SEAL_LEN]);
+        let sig = signer.sign_block(&sig_hash_header, chain_id).unwrap();
         let mut extra = BytesMut::with_capacity(header.extra_data.len());
-        extra.extend_from_slice(&header.extra_data[..header.extra_data.len() - EXTRA_SEAL_LEN]);
-        extra.extend_from_slice(&sig[..]);
+        extra.put_slice(&header.extra_data[..header.extra_data.len() - EXTRA_SEAL_LEN]);
+        extra.put_slice(&sig[..]);
         header.extra_data = extra.freeze();
-        info!(
+        println!(
             "sealed header {}:{}, header: {:?}",
             header.number.0,
             header.hash(),

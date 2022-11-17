@@ -275,7 +275,7 @@ impl HeaderReader for InMemoryState {
         block_number: BlockNumber,
     ) -> anyhow::Result<Option<BlockHeader>> {
         if let Some(header_map) = self.headers.get(block_number.0 as usize) {
-            if header_map.len() == 0 {
+            if header_map.is_empty() {
                 return Ok(None);
             }
             return Ok(header_map.values().next().cloned());

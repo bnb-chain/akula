@@ -38,13 +38,19 @@ impl NodeBuilder {
         self
     }
 
-    pub fn set_chain_head(mut self, height: BlockNumber, hash: H256, parent_hash: H256, td: U256) -> Self {
+    pub fn set_chain_head(
+        mut self,
+        height: BlockNumber,
+        hash: H256,
+        parent_hash: H256,
+        td: U256,
+    ) -> Self {
         let status = Status {
             height,
             hash,
             total_difficulty: H256::from(td.to_be_bytes()),
             parent_hash,
-            td
+            td,
         };
         self.status = Some(status);
         self

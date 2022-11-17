@@ -8,31 +8,28 @@ pub mod parlia;
 use self::fork_choice_graph::ForkChoiceGraph;
 pub use self::{base::*, beacon::*, blockchain::*, clique::*, parlia::*};
 use crate::{
-    consensus::vote::VotePool,
     crypto::signer::ECDSASigner,
     kv::{mdbx::*, tables, MdbxWithDirHandle},
     models::*,
+    p2p::node::Node,
     state::{IntraBlockState, StateReader},
-    BlockReader, HeaderReader,
+    BlockReader, Buffer, HeaderReader,
 };
 use anyhow::{anyhow, bail};
-use arrayvec::ArrayVec;
 use derive_more::{Display, From};
-use ethnum::u256;
 use fastrlp::DecodeError;
 use mdbx::{EnvironmentKind, TransactionKind};
 use milagro_bls::AmclError;
 use parking_lot::Mutex;
 use std::{
     collections::BTreeSet,
-    fmt::{Debug, Display, Formatter},
+    fmt::{Debug, Display},
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     sync::Arc,
     time::SystemTimeError,
 };
 use tokio::sync::watch;
 use tracing::*;
-use crate::p2p::node::Node;
 
 #[derive(Debug)]
 pub enum FinalizationChange {
@@ -84,6 +81,15 @@ impl ConsensusNewBlockState {
             ),
             _ => ConsensusNewBlockState::Stateless,
         })
+    }
+    pub(crate) fn handle_with_txn<E: EnvironmentKind>(
+        chain_spec: &ChainSpec,
+        header: &BlockHeader,
+        tx: &MdbxTransaction<'_, RW, E>,
+    ) -> anyhow::Result<ConsensusNewBlockState> {
+        let mut state = Buffer::new(tx, None);
+        let mut state = IntraBlockState::new(&mut state);
+        ConsensusNewBlockState::handle(chain_spec, header, &mut state)
     }
 }
 
@@ -678,7 +684,7 @@ impl Default for InitialParams {
 pub fn pre_validate_transaction(
     txn: &Message,
     canonical_chain_id: ChainId,
-    _base_fee_per_gas: Option<U256>,
+    base_fee_per_gas: Option<U256>,
 ) -> Result<(), ValidationError> {
     if let Some(chain_id) = txn.chain_id() {
         if chain_id != canonical_chain_id {
@@ -686,13 +692,11 @@ pub fn pre_validate_transaction(
         }
     }
 
-    // TODO need pass in system transaction
-    // info!("tx {:?} base fee {:?}, tx {} max1 {} max2 {}", txn.hash(), base_fee_per_gas, txn.max_fee_per_gas(), txn.max_priority_fee_per_gas(), txn.max_fee_per_gas());
-    // if let Some(base_fee_per_gas) = base_fee_per_gas {
-    //     if txn.max_fee_per_gas() < base_fee_per_gas {
-    //         return Err(ValidationError::MaxFeeLessThanBase);
-    //     }
-    // }
+    if let Some(base_fee_per_gas) = base_fee_per_gas {
+        if txn.max_fee_per_gas() < base_fee_per_gas {
+            return Err(ValidationError::MaxFeeLessThanBase);
+        }
+    }
 
     // https://github.com/ethereum/EIPs/pull/3594
     if txn.max_priority_fee_per_gas() > txn.max_fee_per_gas() {

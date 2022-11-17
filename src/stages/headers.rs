@@ -2,9 +2,7 @@
 
 use crate::{
     accessors,
-    consensus::{
-        engine_factory, fork_choice_graph::ForkChoiceGraph, Consensus, DuoError, ForkChoiceMode,
-    },
+    consensus::{engine_factory, fork_choice_graph::ForkChoiceGraph, Consensus, ForkChoiceMode},
     kv::{mdbx::*, tables},
     models::{BlockHeader, BlockNumber, H256},
     p2p::{
@@ -729,7 +727,7 @@ impl HeaderDownload {
 
     fn validate_sequentially<'tx, 'db, 'a, E: EnvironmentKind>(
         &self,
-        mut engine: Box<dyn Consensus>,
+        engine: Box<dyn Consensus>,
         txn: &'tx mut MdbxTransaction<'db, RW, E>,
         mut parent_header: &'a BlockHeader,
         headers: &'a [(H256, BlockHeader)],

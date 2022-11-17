@@ -12,7 +12,7 @@ pub use util::*;
 
 use super::*;
 use crate::execution::{analysis_cache::AnalysisCache, evmglue, tracer::NoopTracer};
-use std::{str, thread};
+use std::str;
 use vote::*;
 
 use crate::{
@@ -30,20 +30,19 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use ethabi::FunctionOutputDecoder;
 use ethabi_contract::use_contract;
 use ethereum_types::{Address, H256};
-use fastrlp::{Decodable, Encodable};
-use hex_literal::hex;
+use fastrlp::Encodable;
 use lru_cache::LruCache;
 use milagro_bls::{AggregateSignature, PublicKey};
 use parking_lot::RwLock;
+use rand::prelude::*;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
+    ops::Add,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use std::ops::{Add, Sub};
 use tokio::sync::watch::Receiver as WatchReceiver;
 use tracing::*;
 use TransactionAction;
-use rand::prelude::*;
 
 pub const EXTRA_VANITY: usize = 32;
 /// Fixed number of extra-data prefix bytes reserved for signer vanity
@@ -147,23 +146,12 @@ pub trait PoSA: Debug + Send + Sync + 'static {
     ) -> anyhow::Result<bool, DuoError>;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ParliaInitialParams {
     pub bls_prv_key: Option<String>,
     pub bls_pub_key: Option<String>,
     pub node: Option<Arc<Node>>,
     pub sync_stage: Option<WatchReceiver<Option<StageId>>>,
-}
-
-impl Default for ParliaInitialParams {
-    fn default() -> Self {
-        Self {
-            bls_prv_key: None,
-            bls_pub_key: None,
-            node: None,
-            sync_stage: None,
-        }
-    }
 }
 
 /// Parlia Engine implementation
@@ -267,7 +255,7 @@ impl Parlia {
             return Err(ParliaError::WrongHeaderExtraSignersLen {
                 expected: 0,
                 got: bytes_len,
-                msg: format!("cannot set singers without epoch change!"),
+                msg: "cannot set singers without epoch change!".to_string(),
             }
             .into());
         }
@@ -275,7 +263,7 @@ impl Parlia {
             return Err(ParliaError::WrongHeaderExtraSignersLen {
                 expected: 0,
                 got: bytes_len,
-                msg: format!("signers must correct in epoch change!"),
+                msg: "signers must correct in epoch change!".to_string(),
             }
             .into());
         }
@@ -295,7 +283,7 @@ impl Parlia {
         let (expect_validators, bls_key_map) = self
             .new_block_state
             .get_validators()
-            .ok_or_else(|| ParliaError::CacheValidatorsUnknown)?;
+            .ok_or(ParliaError::CacheValidatorsUnknown)?;
 
         if !self.chain_spec.is_boneh(&header.number) {
             let actual_validators = parse_epoch_validators(
@@ -332,7 +320,7 @@ impl Parlia {
         for val in expect_validators.iter() {
             let bls_key = bls_key_map
                 .get(val)
-                .ok_or_else(|| ParliaError::UnknownTargetBLSKey {
+                .ok_or(ParliaError::UnknownTargetBLSKey {
                     block: header.number,
                     account: *val,
                 })?;
@@ -386,9 +374,9 @@ impl Parlia {
             }
         }
         let inturn_proposer = snap.inturn(&proposer);
-        if inturn_proposer && header.difficulty != DIFF_INTURN {
-            return Err(ValidationError::WrongDifficulty.into());
-        } else if !inturn_proposer && header.difficulty != DIFF_NOTURN {
+        if (inturn_proposer && header.difficulty != DIFF_INTURN)
+            || (!inturn_proposer && header.difficulty != DIFF_NOTURN)
+        {
             return Err(ValidationError::WrongDifficulty.into());
         }
         Ok(())
@@ -498,12 +486,13 @@ impl Parlia {
                     continue;
                 }
 
-                let x = snap.validators_map.get(val).ok_or_else(|| {
-                    ParliaError::SnapNotFoundVoteAddr {
+                let x = snap
+                    .validators_map
+                    .get(val)
+                    .ok_or(ParliaError::SnapNotFoundVoteAddr {
                         index: i,
                         addr: *val,
-                    }
-                })?;
+                    })?;
                 vote_addrs.push(PublicKey::from_bytes(&x.vote_addr[..])?);
             }
 
@@ -518,7 +507,7 @@ impl Parlia {
             }
 
             // check bls aggregate sig
-            let vote_addrs = vote_addrs.iter().map(|pk| pk).collect::<Vec<_>>();
+            let vote_addrs = vote_addrs.iter().collect::<Vec<_>>();
             let agg_sig = AggregateSignature::from_bytes(&attestation.agg_signature[..])?;
             info!(
                 "fast_aggregate_verify {}, vote_addrs {:?}:{}, hash {:?}",
@@ -575,15 +564,14 @@ impl Parlia {
         header: &BlockHeader,
         parent: &BlockHeader,
     ) -> anyhow::Result<(), DuoError> {
-        if self.chain_spec.is_ramanujan(&header.number) {
-            if header.timestamp < parent.timestamp + self.period + self.back_off_time(snap, &header)
-            {
-                return Err(ValidationError::InvalidTimestamp {
-                    parent: parent.timestamp,
-                    current: header.timestamp,
-                }
-                .into());
+        if self.chain_spec.is_ramanujan(&header.number)
+            && header.timestamp < parent.timestamp + self.period + self.back_off_time(snap, header)
+        {
+            return Err(ValidationError::InvalidTimestamp {
+                parent: parent.timestamp,
+                current: header.timestamp,
             }
+            .into());
         }
         Ok(())
     }
@@ -596,39 +584,38 @@ impl Parlia {
     ) -> u64 {
         let mut block_timestamp = parent.timestamp + self.period;
         if self.chain_spec.is_ramanujan(&header.number) {
-            block_timestamp += self.back_off_time(snap, &header);
+            block_timestamp += self.back_off_time(snap, header);
         }
         block_timestamp
     }
 
-    fn delay_for_Ramanujan_fork(
-        &self,
-        snap: &Snapshot,
-        header: &BlockHeader
-    ) -> Duration {
+    fn delay_for_ramanujan_fork(&self, snap: &Snapshot, header: &BlockHeader) -> Duration {
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-        let mut delay = Duration::from_secs(header.timestamp).checked_sub(now);
+        let delay = Duration::from_secs(header.timestamp).checked_sub(now);
         match delay {
-            Some(delay) => {
-                info!("delay_for_Ramanujan_fork now {:?}, header.timestamp {}, delay {:?}", now, header.timestamp, delay);
+            Some(mut delay) => {
+                info!(
+                    "delay_for_Ramanujan_fork now {:?}, header.timestamp {}, delay {:?}",
+                    now, header.timestamp, delay
+                );
                 if self.chain_spec.is_ramanujan(&header.number) {
                     return delay;
                 }
 
                 if header.difficulty == DIFF_NOTURN {
                     // It's not our turn explicitly to sign, delay it a bit
-                    let wiggle = ((snap.validators.len() / 2 + 1) as u64) * BACKOFF_MILL_TIME_OF_WIGGLE_BEFORE_FORK;
+                    let wiggle = ((snap.validators.len() / 2 + 1) as u64)
+                        * BACKOFF_MILL_TIME_OF_WIGGLE_BEFORE_FORK;
                     let mut rng = RngSource::new(1);
-                    delay.add(Duration::from_millis(BACKOFF_MILL_TIME_OF_FIXED_BEFORE_FORK + (rng.int63n(wiggle as i64)) as u64));
+                    delay = delay.add(Duration::from_millis(
+                        BACKOFF_MILL_TIME_OF_FIXED_BEFORE_FORK + (rng.int63n(wiggle as i64)) as u64,
+                    ));
                 }
 
                 delay
             }
-            None => {
-                Duration::from_millis(1)
-            }
+            None => Duration::from_millis(1),
         }
-
     }
 
     fn back_off_time(&self, snap: &Snapshot, header: &BlockHeader) -> u64 {
@@ -673,7 +660,7 @@ impl Parlia {
         let mut index = idx;
         let mut backoff_steps = Vec::new();
         for i in 0..validator_count {
-            if let Some(_) = recents.get(&snap.validators[i]) {
+            if recents.get(&snap.validators[i]).is_some() {
                 if i < idx {
                     index -= 1;
                 }
@@ -687,7 +674,7 @@ impl Parlia {
         let mut delay =
             BACKOFF_TIME_OF_INITIAL + (backoff_steps[index] as u64) * BACKOFF_TIME_OF_WIGGLE;
         // If the current validator has recently signed, reduce initial delay.
-        if let Some(_) = recents.get(&snap.suppose_validator()) {
+        if recents.get(&snap.suppose_validator()).is_some() {
             delay -= BACKOFF_TIME_OF_INITIAL;
         }
         delay
@@ -715,12 +702,13 @@ impl Parlia {
         // find the epoch block, and collect voters, calculate rewards
         let mut accum_weight_map = BTreeMap::new();
         let epoch_block = header.number.0;
-        let mut parent = header_reader.read_parent_header(header)?.ok_or_else(|| {
-            ParliaError::UnknownHeader {
-                number: BlockNumber(header.number.0 - 1),
-                hash: header.parent_hash,
-            }
-        })?;
+        let mut parent =
+            header_reader
+                .read_parent_header(header)?
+                .ok_or(ParliaError::UnknownHeader {
+                    number: BlockNumber(header.number.0 - 1),
+                    hash: header.parent_hash,
+                })?;
         while parent.number.0 + self.epoch >= epoch_block && parent.number.0 > 0 {
             let attestation =
                 get_vote_attestation_from_header(&parent, &self.chain_spec, self.epoch)?;
@@ -768,20 +756,18 @@ impl Parlia {
             }
 
             // try accumulate parent
-            parent = header_reader.read_parent_header(&parent)?.ok_or_else(|| {
-                ParliaError::UnknownHeader {
-                    number: BlockNumber(header.number.0 - 1),
-                    hash: header.parent_hash,
-                }
-            })?;
+            parent =
+                header_reader
+                    .read_parent_header(&parent)?
+                    .ok_or(ParliaError::UnknownHeader {
+                        number: BlockNumber(header.number.0 - 1),
+                        hash: header.parent_hash,
+                    })?;
         }
 
         // stats reward, and construct reward system tx
-        let validators = accum_weight_map
-            .keys()
-            .map(|x| *x)
-            .collect::<Vec<Address>>();
-        let weights = accum_weight_map.values().map(|x| *x).collect::<Vec<u64>>();
+        let validators = accum_weight_map.keys().copied().collect::<Vec<Address>>();
+        let weights = accum_weight_map.values().copied().collect::<Vec<u64>>();
         let input_data =
             validator_set_in_boneh::functions::distribute_finality_reward::encode_input(
                 validators, weights,
@@ -811,12 +797,12 @@ impl Parlia {
             }
             // TODO could read snap
             if block_number == 0 || block_number % self.epoch == 0 {
-                let header = header_reader
-                    .read_header(block_number, block_hash)?
-                    .ok_or_else(|| ParliaError::UnknownHeader {
+                let header = header_reader.read_header(block_number, block_hash)?.ok_or(
+                    ParliaError::UnknownHeader {
                         number: block_number,
                         hash: block_hash,
-                    })?;
+                    },
+                )?;
 
                 let (next_validators, bls_keys) =
                     parse_validators_from_header(&header, &self.chain_spec, self.epoch)?;
@@ -829,12 +815,12 @@ impl Parlia {
                 )?;
                 break;
             }
-            let header = header_reader
-                .read_header(block_number, block_hash)?
-                .ok_or_else(|| ParliaError::UnknownHeader {
+            let header = header_reader.read_header(block_number, block_hash)?.ok_or(
+                ParliaError::UnknownHeader {
                     number: block_number,
                     hash: block_hash,
-                })?;
+                },
+            )?;
             block_hash = header.parent_hash;
             block_number = BlockNumber(header.number.0 - 1);
             skip_headers.push(header);
@@ -1030,7 +1016,7 @@ impl Parlia {
     ) -> anyhow::Result<Vec<MessageWithSender>> {
         // attach epoch info when epoch chg
         if header.number % self.epoch == 0 {
-            self.verify_epoch_chg(&header)?;
+            self.verify_epoch_chg(header)?;
         }
 
         let mut expect_txs = Vec::new();
@@ -1041,7 +1027,7 @@ impl Parlia {
                 .collect();
             let mut nonce = state
                 .read_account(header.beneficiary)?
-                .and_then(|a| Some(a.nonce))
+                .map(|a| a.nonce)
                 .unwrap_or(0_u64);
             let mut sys_tx_iter = system_txs.iter();
 
@@ -1097,11 +1083,11 @@ impl Parlia {
             // attach reward system tx
             let mut total_reward = state
                 .read_account(*SYSTEM_ACCOUNT)?
-                .and_then(|a| Some(a.balance))
+                .map(|a| a.balance)
                 .unwrap_or(U256::ZERO);
             let sys_reward_collected = state
                 .read_account(*SYSTEM_REWARD_CONTRACT)?
-                .and_then(|a| Some(a.balance))
+                .map(|a| a.balance)
                 .unwrap_or(U256::ZERO);
 
             if total_reward > U256::ZERO {
@@ -1143,7 +1129,7 @@ impl Parlia {
 
             // if after lynn, distribute fast finality reward
             if self.chain_spec.is_lynn(&header.number) {
-                let reward_data = self.distribute_finality_reward(header_reader, &header)?;
+                let reward_data = self.distribute_finality_reward(header_reader, header)?;
                 if let Some(reward_data) = reward_data {
                     expect_txs.push(self.construct_sys_tx(
                         &mut nonce,
@@ -1315,7 +1301,7 @@ impl Consensus for Parlia {
         header_reader: &dyn HeaderReader,
     ) -> anyhow::Result<(Option<Vec<MessageWithSender>>, Vec<FinalizationChange>)> {
         Ok((
-            Some(self.finalize_the_block(&header, transactions, state, header_reader, true)?),
+            Some(self.finalize_the_block(header, transactions, state, header_reader, true)?),
             Vec::new(),
         ))
     }
@@ -1351,7 +1337,7 @@ impl Consensus for Parlia {
         }
 
         // For 0-period chains, refuse to seal empty blocks (no reward but would spin sealing)
-        if self.period == 0 && block.transactions.len() == 0 {
+        if self.period == 0 && block.transactions.is_empty() {
             info!(
                 "cannot sealing, waiting for transactions, block {:?}:{:?}",
                 block_number, block_hash
@@ -1385,7 +1371,7 @@ impl Consensus for Parlia {
         }
 
         // Sweet, the protocol permits us to sign the block, wait for our time
-        let delay = self.delay_for_Ramanujan_fork(&snap, header);
+        let delay = self.delay_for_ramanujan_fork(&snap, header);
 
         info!("consensus seal the block {:?}:{:?}, proposer: {:?}, delay: {:?}, difficulty: {}, gasUsed: {}, txsRoot: {:?}, stateRoot: {:?}",
             block_number, block_hash, proposer, delay, header.difficulty, header.gas_used, header.transactions_root, header.state_root
@@ -1407,7 +1393,10 @@ impl Consensus for Parlia {
             info!("waiting to propagate, delay {:?}", delay);
             tokio::time::sleep(delay).await;
             if should_wait_current_block_process(node.clone(), header) {
-                info!("waiting for received in turn block to process, block {:?}:{:?}", block_number, block_hash);
+                info!(
+                    "waiting for received in turn block to process, block {:?}:{:?}",
+                    block_number, block_hash
+                );
                 tokio::time::sleep(Duration::from_secs(BACKOFF_TIME_OF_PROCESS)).await;
             }
             // TODO set correct TD
@@ -1415,9 +1404,11 @@ impl Consensus for Parlia {
             // Broadcast the mined block to other p2p nodes.
             let sent_request_id = rand::thread_rng().gen();
             // TODO add mined block into stageSync
-            info!("finally, we could send_new_mining_block to others, block: {:?}:{:?}, {:?}", block_number, block_hash, block);
-            node.send_new_mining_block(sent_request_id, block, td)
-                .await;
+            info!(
+                "finally, we could send_new_mining_block to others, block: {:?}:{:?}, {:?}",
+                block_number, block_hash, block
+            );
+            node.send_new_mining_block(sent_request_id, block, td).await;
         });
         Ok(true)
     }
@@ -1449,12 +1440,12 @@ impl Consensus for Parlia {
                 }
             }
             if block_number == 0 {
-                let header = header_reader
-                    .read_header(block_number, block_hash)?
-                    .ok_or_else(|| ParliaError::UnknownHeader {
+                let header = header_reader.read_header(block_number, block_hash)?.ok_or(
+                    ParliaError::UnknownHeader {
                         number: block_number,
                         hash: block_hash,
-                    })?;
+                    },
+                )?;
 
                 let (next_validators, bls_keys) =
                     parse_validators_from_header(&header, &self.chain_spec, self.epoch)?;
@@ -1467,12 +1458,12 @@ impl Consensus for Parlia {
                 )?;
                 break;
             }
-            let header = header_reader
-                .read_header(block_number, block_hash)?
-                .ok_or_else(|| ParliaError::UnknownHeader {
+            let header = header_reader.read_header(block_number, block_hash)?.ok_or(
+                ParliaError::UnknownHeader {
                     number: block_number,
                     hash: block_hash,
-                })?;
+                },
+            )?;
             block_hash = header.parent_hash;
             block_number = BlockNumber(header.number.0 - 1);
             skip_headers.push(header);
@@ -1486,7 +1477,7 @@ impl Consensus for Parlia {
             debug!("snap save {} {:?}", snap.block_number, snap.block_hash);
             snap_db.write_parlia_snap(&snap)?;
         }
-        return Ok(());
+        Ok(())
     }
 
     fn authorize(&mut self, signer: ECDSASigner) {
@@ -1524,11 +1515,7 @@ impl PoSA for Parlia {
         }
 
         // otherwise
-        Ok(find_ancient_header(
-            header_reader,
-            header,
-            NATURALLY_JUSTIFIED_DIST,
-        )?)
+        find_ancient_header(header_reader, header, NATURALLY_JUSTIFIED_DIST)
     }
 
     fn get_finalized_header(
@@ -1565,7 +1552,7 @@ impl PoSA for Parlia {
             snap = self.find_snapshot(header_reader, vote.source_number, vote.source_hash)?;
         }
 
-        Ok(find_ancient_header(header_reader, header, backward)?)
+        find_ancient_header(header_reader, header, backward)
     }
 
     fn verify_vote(
@@ -1578,7 +1565,7 @@ impl PoSA for Parlia {
 
         let target_header = header_reader
             .read_header(target_number, target_hash)?
-            .ok_or_else(|| ParliaError::UnknownHeader {
+            .ok_or(ParliaError::UnknownHeader {
                 number: target_number,
                 hash: target_hash,
             })?;
@@ -1642,7 +1629,7 @@ where
             state
                 .db()
                 .read_parent_header(header)?
-                .ok_or_else(|| ParliaError::UnknownHeader {
+                .ok_or(ParliaError::UnknownHeader {
                     number: BlockNumber(header.number.0 - 1),
                     hash: header.parent_hash,
                 })?;
@@ -1681,7 +1668,7 @@ where
         nonce: header.nonce.to_low_u64_be(),
         gas_price: U256::ZERO,
         gas_limit: 50000000,
-        action: TransactionAction::Call(VALIDATOR_CONTRACT.clone()),
+        action: TransactionAction::Call(*VALIDATOR_CONTRACT),
         value: U256::ZERO,
         input: input_bytes,
     };
@@ -1693,7 +1680,7 @@ where
         state,
         &mut tracer,
         &mut analysis_cache,
-        &header,
+        header,
         &block_spec,
         &message,
         *VALIDATOR_CONTRACT,
@@ -1711,7 +1698,7 @@ where
 
     let mut validators = BTreeSet::new();
     for addr in validator_addrs {
-        validators.insert(Address::from(addr));
+        validators.insert(addr);
     }
     Ok((validators.into_iter().collect(), HashMap::new()))
 }
@@ -1733,7 +1720,7 @@ where
         nonce: header.nonce.to_low_u64_be(),
         gas_price: U256::ZERO,
         gas_limit: 50000000,
-        action: TransactionAction::Call(VALIDATOR_CONTRACT.clone()),
+        action: TransactionAction::Call(*VALIDATOR_CONTRACT),
         value: U256::ZERO,
         input: input_bytes,
     };
@@ -1745,7 +1732,7 @@ where
         state,
         &mut tracer,
         &mut analysis_cache,
-        &header,
+        header,
         &block_spec,
         &message,
         *VALIDATOR_CONTRACT,
@@ -1753,23 +1740,23 @@ where
         message.gas_limit(),
     )?;
 
-    // let (validator_addrs, bls_keys) = decoder.decode(res.output_data.chunk())?;
+    let (validator_addrs, bls_keys) = decoder.decode(res.output_data.chunk())?;
 
-    // TODO mock it
-    let validator_addrs: Vec<[u8; 20]> = vec![
-        hex!("9454cf9380bbf3c0e0bd15cdc8d2506ca18b005a").into(),
-        hex!("0077f969595083a39a71ef6c050508ff99886b73").into(),
-        hex!("31cf5a8d2e6a5e6a9cff2f2953152d2cf7a1050e").into(),
-        hex!("0f5dbf29a272264b169f96c76e5b07d49f76db4d").into(),
-        hex!("6d3d3fb1020a50f2c7b5e73c5332636b0163b707").into(),
-    ];
-    let bls_keys: Vec<[u8; 48]> = vec![
-        hex!("85e6972fc98cd3c81d64d40e325acfed44365b97a7567a27939c14dbc7512ddcf54cb1284eb637cfa308ae4e00cb5588").into(),
-        hex!("8addebd6ef7609df215e006987040d0a643858f3a4d791beaa77177d67529160e645fac54f0d8acdcd5a088393cb6681").into(),
-        hex!("89abcc45efe76bec679ca35c27adbd66fb9712a278e3c8530ab25cfaf997765aee574f5c5745dbb873dbf7e961684347").into(),
-        hex!("a1484f2b97137fb957daad064ca6cbe5b99549249ceb51f42e928ec091f94fed642ddffe3a9916769538decd0a9937bf").into(),
-        hex!("8b20e24ad933b9af0a55a6d34a08e10b832a10f389154dc0dec79b63a38b79ea2f0d9f4fa664b3c06b1b2437cb58236f").into(),
-    ];
+    // // TODO tmp for mock, because dev0net fast-finality cannot recv BC cross chain msg, to set epoch keys
+    // let validator_addrs: Vec<[u8; 20]> = vec![
+    //     hex!("9454cf9380bbf3c0e0bd15cdc8d2506ca18b005a"),
+    //     hex!("0077f969595083a39a71ef6c050508ff99886b73"),
+    //     hex!("31cf5a8d2e6a5e6a9cff2f2953152d2cf7a1050e"),
+    //     hex!("0f5dbf29a272264b169f96c76e5b07d49f76db4d"),
+    //     hex!("6d3d3fb1020a50f2c7b5e73c5332636b0163b707"),
+    // ];
+    // let bls_keys: Vec<[u8; 48]> = vec![
+    //     hex!("85e6972fc98cd3c81d64d40e325acfed44365b97a7567a27939c14dbc7512ddcf54cb1284eb637cfa308ae4e00cb5588"),
+    //     hex!("8addebd6ef7609df215e006987040d0a643858f3a4d791beaa77177d67529160e645fac54f0d8acdcd5a088393cb6681"),
+    //     hex!("89abcc45efe76bec679ca35c27adbd66fb9712a278e3c8530ab25cfaf997765aee574f5c5745dbb873dbf7e961684347"),
+    //     hex!("a1484f2b97137fb957daad064ca6cbe5b99549249ceb51f42e928ec091f94fed642ddffe3a9916769538decd0a9937bf"),
+    //     hex!("8b20e24ad933b9af0a55a6d34a08e10b832a10f389154dc0dec79b63a38b79ea2f0d9f4fa664b3c06b1b2437cb58236f"),
+    // ];
 
     let mut validators = BTreeSet::new();
     let mut bls_key_map = HashMap::new();
@@ -1781,7 +1768,7 @@ where
         hex::encode(res.output_data.chunk())
     );
     for i in 0..validator_addrs.len() {
-        let addr = Address::from(validator_addrs[i]);
+        let addr = validator_addrs[i];
         validators.insert(addr);
         if bls_keys[i].len() != BLS_PUBLIC_KEY_LEN {
             bls_key_map.insert(addr, BLSPublicKey::zero());

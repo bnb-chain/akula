@@ -1,4 +1,3 @@
-use crate::devp2p::Swarm;
 use akula::{
     akula_tracing::{self, Component},
     binutil::AkulaDataDir,
@@ -13,7 +12,6 @@ use akula::{
         net::NetApiServerImpl, otterscan::OtterscanApiServerImpl, parity::ParityApiServerImpl,
         trace::TraceApiServerImpl, web3::Web3ApiServerImpl,
     },
-    sentry::*,
     stagedsync,
     stages::{stage_util::IndexParams, *},
     version_string,
@@ -26,12 +24,8 @@ use ethereum_jsonrpc::{
     TraceApiServer, Web3ApiServer,
 };
 use expanded_pathbuf::ExpandedPathBuf;
-use futures::executor::block_on;
 use http::Uri;
-use jsonrpsee::{
-    core::server::rpc_module::Methods,
-    server::ServerBuilder
-};
+use jsonrpsee::{core::server::rpc_module::Methods, server::ServerBuilder};
 use num_bigint::BigInt;
 use secp256k1::SecretKey;
 use std::{
@@ -561,9 +555,9 @@ fn main() -> anyhow::Result<()> {
                     consensus_config.authorize(ECDSASigner::from_secret(&opt.mine_secretkey.unwrap()[..]));
                     let mining_config = Arc::new(Mutex::new(MiningConfig {
                         enabled: true,
-                        ether_base: opt.mine_etherbase.unwrap().clone(),
-                        secret_key: opt.mine_secretkey.unwrap().clone(),
-                        extra_data: opt.mine_extradata.map(Bytes::from).clone(),
+                        ether_base: opt.mine_etherbase.unwrap(),
+                        secret_key: opt.mine_secretkey.unwrap(),
+                        extra_data: opt.mine_extradata.map(Bytes::from),
                         consensus: consensus_config,
                         dao_fork_block: Some(BigInt::new(num_bigint::Sign::Plus, vec![])),
                         dao_fork_support: false,
@@ -604,9 +598,9 @@ fn main() -> anyhow::Result<()> {
 
                     staged_mining.push(
                         MiningFinishBlock {
-                            mining_status: mining_status.clone(),
-                            mining_block: mining_block.clone(),
-                            mining_config: mining_config.clone(),
+                            mining_status,
+                            mining_block,
+                            mining_config,
                             chain_spec: chainspec.clone(),
                             node: node.clone(),
                         },

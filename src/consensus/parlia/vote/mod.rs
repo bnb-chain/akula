@@ -11,11 +11,9 @@ pub use pool::*;
 pub use signer::*;
 
 use crate::{
-    consensus::{DuoError, ParliaError},
+    consensus::DuoError,
     models::{BLSPublicKey, BlockNumber, H256},
 };
-use clap::builder::Str;
-use milagro_bls::AmclError;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ParliaVoteError {

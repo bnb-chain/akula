@@ -130,13 +130,8 @@ impl ChainSpec {
         address: &Address,
     ) -> Option<(H256, Bytes)> {
         if let Some(contracts) = self.contracts.get(&block_number) {
-            if let Some(contract) = contracts.get(&address) {
-                if let Contract::Contract { code } = contract {
-                    return Some((
-                        H256::from_slice(&Keccak256::digest(&code)[..]),
-                        code.clone(),
-                    ));
-                }
+            if let Some(Contract::Contract { code }) = contracts.get(address) {
+                return Some((H256::from_slice(&Keccak256::digest(code)[..]), code.clone()));
             }
         }
         None
@@ -275,17 +270,17 @@ pub struct ConsensusParams {
 
 impl ConsensusParams {
     pub fn is_parlia(&self) -> bool {
-        match self.seal_verification {
-            SealVerificationParams::Parlia { .. } => true,
-            _ => false,
-        }
+        matches!(
+            self.seal_verification,
+            SealVerificationParams::Parlia { .. }
+        )
     }
 
     pub fn is_clique(&self) -> bool {
-        match self.seal_verification {
-            SealVerificationParams::Clique { .. } => true,
-            _ => false,
-        }
+        matches!(
+            self.seal_verification,
+            SealVerificationParams::Clique { .. }
+        )
     }
 }
 

@@ -656,7 +656,7 @@ impl RngSource {
         self.tap = 0;
         self.feed = RNG_LEN - RNG_TAP;
 
-        seed = seed % INT32_MAX;
+        seed %= INT32_MAX;
         if seed < 0 {
             seed += INT32_MAX
         }
@@ -751,7 +751,7 @@ pub trait Shuffle {
 /// swap swaps the elements with indexes i and j.
 impl<T> Shuffle for Vec<T> {
     fn shuffle(&mut self, rng: &mut RngSource) {
-        if self.len() == 0 {
+        if self.is_empty() {
             return;
         }
 
@@ -762,7 +762,7 @@ impl<T> Shuffle for Vec<T> {
         // generate even a minuscule percentage of the possible permutations.
         // Nevertheless, the right API signature accepts an int n, so handle it as best we can.
         let mut i = self.len() - 1;
-        while i > 1 << 31 - 1 - 1 {
+        while i > (1 << 31) - 1 - 1 {
             let j = rng.int63n((i + 1) as i64) as usize;
             self.swap(i, j);
             i -= 1;

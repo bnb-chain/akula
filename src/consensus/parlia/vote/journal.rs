@@ -1,7 +1,6 @@
 use super::*;
 use hashlink::LruCache;
 use parking_lot::Mutex;
-use std::sync::Arc;
 
 const MAX_CACHE_RECENT_SIZE: usize = 512;
 
@@ -28,9 +27,6 @@ impl VoteJournal {
     /// get_vote, read from cache
     pub fn get_vote(&self, block_number: u64) -> Option<VoteEnvelope> {
         let mut buffer = self.buffer.lock();
-        match buffer.get(&block_number) {
-            None => None,
-            Some(v) => Some(v.clone()),
-        }
+        buffer.get(&block_number).cloned()
     }
 }

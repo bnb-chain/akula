@@ -109,11 +109,10 @@ impl ECDSASigner {
             }
         };
 
-        let yp = YParityAndChainId::from_v(v).ok_or(anyhow!("sign err: invalid signature v"))?;
-        Ok(
-            MessageSignature::new(yp.odd_y_parity, H256::from_slice(r), H256::from_slice(s))
-                .ok_or(anyhow!("sign err: invalid signature"))?,
-        )
+        let yp =
+            YParityAndChainId::from_v(v).ok_or_else(|| anyhow!("sign err: invalid signature v"))?;
+        MessageSignature::new(yp.odd_y_parity, H256::from_slice(r), H256::from_slice(s))
+            .ok_or_else(|| anyhow!("sign err: invalid signature"))
     }
 
     pub fn sign_block(&self, header: &BlockHeader, chain_id: ChainId) -> anyhow::Result<Bytes> {

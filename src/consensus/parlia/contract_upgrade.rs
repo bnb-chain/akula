@@ -9,7 +9,7 @@ use lazy_static::lazy_static;
 use rustc_hex::FromHex;
 use std::{collections::HashMap, str::FromStr};
 
-#[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd)]
 pub struct UpgradeConfig {
     pub contract_addr: &'static str,
     pub code: &'static str,
@@ -88,7 +88,7 @@ where
 }
 
 pub fn apply_system_contract_upgrade<'r, S>(
-    upgrade: &Vec<UpgradeConfig>,
+    upgrade: &[UpgradeConfig],
     statedb: &mut IntraBlockState<'r, S>,
 ) -> anyhow::Result<(), DuoError>
 where

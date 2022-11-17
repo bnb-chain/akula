@@ -126,7 +126,7 @@ where
                 "initialize_genesis address{:?}, code_hash:{:?}, balance: {}",
                 address,
                 code_hash,
-                hex::encode(&balance.to_be_bytes())
+                hex::encode(balance.to_be_bytes())
             );
             state_buffer.update_account(
                 address,

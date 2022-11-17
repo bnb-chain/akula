@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    consensus::{DuoError, ParliaError, PoSA},
+    consensus::{DuoError, PoSA},
     models::{BlockHeader, BlockNumber, H256},
     p2p::node::Node,
     HeaderReader,
@@ -98,10 +98,9 @@ impl VotePool {
 
     /// get_vote_by_block_hash, get target block votes from pool.
     pub fn get_vote_by_block_hash(&self, block_hash: H256) -> Option<Vec<&VoteEnvelope>> {
-        match self.cur_votes.get(&block_hash) {
-            None => None,
-            Some(vb) => Some(vb.votes.iter().collect()),
-        }
+        self.cur_votes
+            .get(&block_hash)
+            .map(|vb| vb.votes.iter().collect())
     }
 
     /// push_vote, when you received a new vote, try push into pool.
@@ -114,7 +113,7 @@ impl VotePool {
             .latest_header
             .as_ref()
             .ok_or(ParliaVoteError::UnknownLatestHeader {
-                msg: format!("push_vote got none latest header!"),
+                msg: "push_vote got none latest header!".to_string(),
             })?;
 
         let latest_number = header.number.0;
@@ -246,7 +245,7 @@ impl VotePool {
 
         while let Some(info) = cur_queue.peek() {
             let VoteBoxInfo(block_number, block_hash) = *info;
-            if block_number + LOWER_LIMIT_VOTE_BLOCK_NUMBER - 1 >= latest_number {
+            if block_number + LOWER_LIMIT_VOTE_BLOCK_NUMBER > latest_number {
                 break;
             }
             cur_queue.pop();

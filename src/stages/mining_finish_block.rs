@@ -1,39 +1,12 @@
 use super::*;
 use crate::{
-    accessors,
-    consensus::{parlia::contract_upgrade, *},
-    execution::{
-        analysis_cache::AnalysisCache,
-        processor::ExecutionProcessor,
-        tracer::{CallTracer, CallTracerFlags},
-    },
-    kv::{mdbx::MdbxTransaction, tables, tables::*},
-    mining::{
-        proposal::{create_block_header, create_proposal},
-        state::*,
-    },
-    models::*,
-    p2p::node::Node,
-    res::chainspec,
-    stagedsync::stage::*,
-    state::IntraBlockState,
-    Buffer, StageId,
+    kv::mdbx::MdbxTransaction, mining::state::*, models::*, p2p::node::Node, stagedsync::stage::*,
+    StageId,
 };
-use anyhow::{bail, format_err};
 use async_trait::async_trait;
-use cipher::typenum::int;
-use hex::FromHex;
 use mdbx::{EnvironmentKind, RW};
-use num_bigint::{BigInt, Sign};
-use num_traits::ToPrimitive;
-use rand::Rng;
-use std::{
-    cmp::Ordering,
-    sync::{Arc, Mutex},
-    time::{Duration, Instant},
-};
-use tokio::io::copy;
-use tracing::{debug, info, log::warn};
+use std::sync::{Arc, Mutex};
+use tracing::*;
 
 pub const STAGE_FINISH_BLOCK: StageId = StageId("StageFinishBlock");
 // DAOForkExtraRange is the number of consecutive blocks from the DAO fork point
@@ -71,14 +44,13 @@ where
             .map(|(_, b)| b)
             .unwrap_or(BlockNumber(0));
 
-        let mut block = {
+        let block = {
             let mining_block = self.mining_block.lock().unwrap();
-            let block = Block::new(
+            Block::new(
                 PartialHeader::from(mining_block.header.clone()),
                 mining_block.transactions.clone(),
                 mining_block.ommers.clone(),
-            );
-            block
+            )
         };
 
         if let Err(err) = self
@@ -113,12 +85,12 @@ where
             warn!("mining finish send pending_result_ch err: {:?}", err);
         }
 
-        let _success = self
-            .mining_config
-            .lock()
-            .unwrap()
-            .consensus
-            .seal(self.node.clone(), tx, block)?;
+        let _success =
+            self.mining_config
+                .lock()
+                .unwrap()
+                .consensus
+                .seal(self.node.clone(), tx, block)?;
 
         Ok(ExecOutput::Progress {
             stage_progress: prev_stage,

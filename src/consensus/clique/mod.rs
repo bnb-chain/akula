@@ -6,41 +6,29 @@ pub mod clique_util;
 use crate::{
     consensus::{
         clique_snapshot::CliqueSnapshot, fork_choice_graph::ForkChoiceGraph, state::CliqueBlock,
-        CliqueError, Consensus, ConsensusEngineBase, ConsensusState, DuoError,
-        DuoError::Validation, FinalizationChange, ForkChoiceMode, ValidationError,
+        CliqueError, Consensus, ConsensusEngineBase, ConsensusState, DuoError, FinalizationChange,
+        ForkChoiceMode, ValidationError,
     },
     kv::{mdbx::*, tables},
     models::{
-        Block, BlockHeader, BlockNumber, ChainConfig, ChainId, ChainSpec, MessageWithSender,
-        Receipt, Seal, EMPTY_LIST_HASH,
+        Block, BlockHeader, BlockNumber, ChainConfig, ChainId, ChainSpec, MessageWithSender, Seal,
+        EMPTY_LIST_HASH,
     },
-    state::{IntraBlockState, StateReader},
+    state::StateReader,
     BlockReader, HeaderReader,
 };
 use anyhow::bail;
-use byte_unit::Byte;
 use bytes::Bytes;
-use cipher::typenum::private::IsEqualPrivate;
-//use ethabi::Bytes;
-use ethereum_types::{Address, H256, H64};
+use ethereum_types::{Address, H256};
 use lru_cache::LruCache;
 use mdbx::{EnvironmentKind, TransactionKind};
 use parking_lot::{Mutex, RwLock};
-use rlp::RlpStream;
 use secp256k1::{
     ecdsa::{RecoverableSignature, RecoveryId},
     Message as SecpMessage, SECP256K1,
 };
 use sha3::{Digest, Keccak256};
-use std::{
-    io::Read,
-    sync::Arc,
-    time::{Duration, SystemTime},
-    unreachable,
-};
-use tendermint::signature::Signer;
-use tracing::{debug, info};
-use trust_dns_resolver::proto::{serialize::binary::BinEncodable, Time};
+use std::{sync::Arc, time::Duration, unreachable};
 
 const EXTRA_VANITY: usize = 32;
 const EXTRA_SEAL: usize = 65;

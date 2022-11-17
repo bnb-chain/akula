@@ -47,7 +47,7 @@ impl Snapshot {
             block_hash,
             epoch_num,
             validators,
-            validators_map: val_info_map.unwrap_or(Default::default()),
+            validators_map: val_info_map.unwrap_or_default(),
             recent_proposers: Default::default(),
             vote_data: None,
         })
@@ -88,8 +88,7 @@ impl Snapshot {
         if snap
             .recent_proposers
             .iter()
-            .find(|(_, addr)| **addr == proposer)
-            .is_some()
+            .any(|(_, addr)| *addr == proposer)
         {
             return Err(ParliaError::SignerOverLimit { signer: proposer }.into());
         }
@@ -113,7 +112,7 @@ impl Snapshot {
             // notice: the validators should be sorted by ascending order.
             next_validators.sort();
             snap.validators = next_validators;
-            snap.validators_map = val_info_map.unwrap_or(Default::default());
+            snap.validators_map = val_info_map.unwrap_or_default();
         }
 
         // after boneh fork, try parse header attestation

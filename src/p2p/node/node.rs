@@ -109,7 +109,7 @@ impl Node {
                                 }
                             }
                             Message::BlockHeaders(ref headers) => {
-                                if headers.headers.len() > 0 {
+                                if !headers.headers.is_empty() {
                                     info!(
                                         "recv a BlockHeaders in handler {:?}:{:?}, len {}",
                                         headers.headers[0].number,
@@ -422,7 +422,7 @@ impl Node {
     /// Sends a new mined block to other peers.
     pub async fn send_new_mining_block<'a>(
         &self,
-        request_id: u64,
+        _request_id: u64,
         block: Block,
         total_difficulty: U256,
     ) -> HashSet<(SentryId, PeerId)> {

@@ -5,7 +5,7 @@ use crate::{
 };
 use bytes::{BufMut, Bytes, BytesMut};
 use fastrlp::*;
-use milagro_bls::{AmclError, PublicKey, Signature};
+use milagro_bls::{PublicKey, Signature};
 use serde::{Deserialize, Serialize};
 
 /// max attestation extra length

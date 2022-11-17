@@ -69,14 +69,10 @@ fn read_object<S: StateReader>(
         Some(obj.clone())
     } else {
         let accdata = db.read_account(address)?;
-        if let Some(account) = accdata {
-            Some(Object {
-                initial: Some(account),
-                current: Some(account),
-            })
-        } else {
-            None
-        }
+        accdata.map(|account| Object {
+            initial: Some(account),
+            current: Some(account),
+        })
     })
 }
 
@@ -586,7 +582,7 @@ where
         }
 
         let code = self.state.read_code(code_hash)?;
-        return Ok(code);
+        Ok(code)
     }
 
     fn read_storage(&self, address: Address, key: U256) -> anyhow::Result<U256> {
