@@ -1,3 +1,4 @@
+Notice: This repo is no longer maintained
 # <h1 align="center"> 🦈 Akula 🦈 </h1>
 
 Next-generation implementation of Ethereum protocol ("client") written in Rust, based on [Erigon architecture](https://github.com/ledgerwatch/interfaces).
